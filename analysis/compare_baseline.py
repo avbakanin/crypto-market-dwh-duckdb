@@ -165,7 +165,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for layer in args.layer:
         if not (SQL_DIR / f"{layer}.sql").is_file():
             parser.error(f"no metrics query for layer {layer!r} in {SQL_DIR}")
-    database = args.database or warehouse_path()
+    database = args.database.resolve() if args.database else warehouse_path()
 
     outcomes = compare(
         read_baseline(args.baseline, args.layer), duckdb_metrics(database, args.layer)
