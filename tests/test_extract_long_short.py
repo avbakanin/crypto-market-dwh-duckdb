@@ -62,7 +62,7 @@ def offline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeFutures:
     monkeypatch.setattr(els, "load_contracts", lambda: ["BTCUSDT"])
     monkeypatch.setattr(els, "BinanceFuturesClient", lambda: fake)
     monkeypatch.setattr(els, "time", SimpleNamespace(time=TickingClock(NOW_MS).time))
-    monkeypatch.setattr(futures_stats, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(futures_stats, "LANDING_ZONE_DIR", tmp_path / "data" / "raw")
     monkeypatch.setattr(futures_stats, "PAUSE_S", 0)
     return fake
 

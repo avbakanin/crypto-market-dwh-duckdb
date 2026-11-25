@@ -21,6 +21,7 @@ from typing import Any, Protocol
 from ingestion.batches import BatchWriter, high_water_marks
 from ingestion.clients.binance import BinanceClient
 from ingestion.extract_cli import exit_code, parse_extract_args
+from ingestion.settings import LANDING_ZONE_DIR
 
 Kline = list[Any]
 
@@ -34,7 +35,7 @@ INTERVAL_MS_BY_NAME = {"1h": HOUR_MS, "1d": DAY_MS}
 
 INTERVAL = "1h"
 INTERVAL_MS = INTERVAL_MS_BY_NAME[INTERVAL]  # unsupported INTERVAL fails at import, not mid-run
-OUTPUT_DIR = PROJECT_ROOT / "data" / "raw" / f"klines_{INTERVAL}"
+OUTPUT_DIR = LANDING_ZONE_DIR / f"klines_{INTERVAL}"
 PAGE_LIMIT = 1000
 HISTORY_DAYS = 365
 OVERLAP_CANDLES = 1  # re-read the newest extracted candle: proves the seam, heals a fast clock

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ingestion.datasets import DATASETS
-from ingestion.extract_klines import PROJECT_ROOT
+from ingestion.settings import LANDING_ZONE_DIR
 
 
 def test_datasets_are_loaded_klines_first() -> None:
@@ -20,8 +20,8 @@ def test_datasets_are_loaded_klines_first() -> None:
 def test_landing_zones_keep_their_directories() -> None:
     # The landing zone is the extract's watermark: a renamed directory would start the
     # history over (a year of klines, 30 days of open interest) and orphan the old batches.
-    root = PROJECT_ROOT / "data" / "raw"
-    assert {d.name: d.landing_dir.relative_to(root).as_posix() for d in DATASETS} == {
+    # relative_to also fails if an extract writes outside LANDING_ZONE_DIR.
+    assert {d.name: d.landing_dir.relative_to(LANDING_ZONE_DIR).as_posix() for d in DATASETS} == {
         "klines": "klines_1h",
         "funding_rate": "funding_rate",
         "open_interest": "open_interest_1h",

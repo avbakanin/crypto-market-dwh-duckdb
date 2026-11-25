@@ -27,12 +27,13 @@ from ingestion.batches import BatchWriter, high_water_marks
 from ingestion.clients.binance import BinanceFuturesClient
 from ingestion.extract_cli import exit_code, parse_extract_args
 from ingestion.extract_klines import DAY_MS, HOUR_MS
+from ingestion.settings import LANDING_ZONE_DIR
 
 Funding = dict[str, Any]
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PERPETUALS_PATH = PROJECT_ROOT / "config" / "perpetuals.csv"
-OUTPUT_DIR = PROJECT_ROOT / "data" / "raw" / "funding_rate"
+OUTPUT_DIR = LANDING_ZONE_DIR / "funding_rate"
 
 HISTORY_DAYS = 365
 PAGE_LIMIT = 1000

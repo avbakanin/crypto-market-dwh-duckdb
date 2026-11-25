@@ -25,10 +25,10 @@ from typing import Any, Protocol
 
 from ingestion.batches import BatchWriter, high_water_marks
 from ingestion.extract_klines import DAY_MS, HOUR_MS
+from ingestion.settings import LANDING_ZONE_DIR
 
 Point = dict[str, Any]
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PERIOD = "1h"
 WINDOW_DAYS = 30  # served: about 31 days back; the margin keeps startTime clear of HTTP 400
 PAGE_LIMIT = 500  # the documented maximum (live, larger limits are accepted too)
@@ -47,7 +47,7 @@ class StatsSeries:
 
     @property
     def output_dir(self) -> Path:
-        return PROJECT_ROOT / "data" / "raw" / self.name
+        return LANDING_ZONE_DIR / self.name
 
 
 class StatsSource(Protocol):

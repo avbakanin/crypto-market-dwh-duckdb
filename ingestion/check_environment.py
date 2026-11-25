@@ -4,7 +4,8 @@ Run from repo root: python -m ingestion.check_environment
 Exit code 1 on any problem. All checks are local and print names, never values:
 
 - the variables of dbt and of the DuckDB warehouse are set;
-- the landing zone of every dataset exists, is writable and has complete batches.
+- the landing zone of every dataset (under LANDING_ZONE_DIR) exists, is writable and has
+  complete batches.
 
 In Airflow it runs first: a broken environment fails here, before any other task.
 """
@@ -16,13 +17,10 @@ import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 from ingestion.batches import high_water_marks
 from ingestion.datasets import DATASETS
-from ingestion.extract_klines import PROJECT_ROOT, ms_to_utc
-
-ENV_PATH = PROJECT_ROOT / ".env"
+from ingestion.extract_klines import ms_to_utc
+from ingestion.settings import LANDING_ZONE_DIR
 
 REQUIRED_VARS = (
     "DBT_PROJECT_DIR",
@@ -49,8 +47,7 @@ def landing_zone_problem(root: Path) -> str | None:
 
 def main(env: Mapping[str, str] | None = None) -> int:
     if env is None:
-        load_dotenv(ENV_PATH)  # never overrides the environment
-        env = os.environ
+        env = os.environ  # ingestion.settings has loaded .env: it never overrides the environment
     problems: list[str] = []
     print(f"Python {sys.version.split()[0]}: {sys.executable}")
 
@@ -58,6 +55,7 @@ def main(env: Mapping[str, str] | None = None) -> int:
     print(f"Variables: {len(REQUIRED_VARS) - len(missing)} of {len(REQUIRED_VARS)} set")
     problems += [f"variable {name} is not set" for name in missing]
 
+    print(f"Landing zone: {LANDING_ZONE_DIR}")
     for dataset in DATASETS:
         problem = landing_zone_problem(dataset.landing_dir)
         if problem:
