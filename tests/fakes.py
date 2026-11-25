@@ -1,13 +1,8 @@
-"""Test doubles: in-memory stand-ins for BinanceClient and a Snowflake connection and cursor."""
+"""Test doubles: in-memory stand-ins for the Binance spot and futures clients."""
 
 from __future__ import annotations
 
-import json
-from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import Any
-
-import pyarrow as pa
 
 from ingestion.clients.binance import BinanceAPIError
 from ingestion.extract_klines import Kline
@@ -84,52 +79,6 @@ class FakeBinance:
         if end_time is not None:
             rows = [k for k in rows if k[0] <= end_time]
         return rows[:limit] if start_time is not None else rows[-limit:]
-
-
-class FakeCursor:
-    """Scripted Snowflake DictCursor: answers each execute() with the next scripted result.
-
-    Records every statement and its parameters; an unscripted statement fails the test.
-    """
-
-    def __init__(self, results: list[list[dict[str, Any]]]) -> None:
-        self._results = list(results)
-        self._rows: list[dict[str, Any]] = []
-        self.executed: list[str] = []
-        self.params: list[Sequence[Any] | None] = []
-
-    def execute(self, operation: str, parameters: Sequence[Any] | None = None, /) -> FakeCursor:
-        if not self._results:
-            raise AssertionError(f"Unexpected statement: {operation}")
-        self.executed.append(operation)
-        self.params.append(parameters)
-        self._rows = self._results.pop(0)
-        return self
-
-    def fetchall(self) -> list[Any]:
-        return self._rows
-
-    def __enter__(self) -> FakeCursor:
-        return self
-
-    def __exit__(self, *exc_info: object) -> None:
-        return None
-
-
-class FakeConnection:
-    """Stand-in for a SnowflakeConnection in loader.main: hands out one scripted cursor."""
-
-    def __init__(self, cursor: FakeCursor) -> None:
-        self._cursor = cursor
-
-    def cursor(self, cursor_class: object = None) -> FakeCursor:
-        return self._cursor
-
-    def __enter__(self) -> FakeConnection:
-        return self
-
-    def __exit__(self, *exc_info: object) -> None:
-        return None
 
 
 class FakeFutures:
@@ -227,98 +176,3 @@ class FakeFutures:
         if end_time is not None:
             rows = [r for r in rows if r["timestamp"] <= end_time]
         return rows[-limit:]
-
-
-@dataclass(frozen=True)
-class Column:
-    """The fields of the connector's ResultMetadata that the export reads."""
-
-    name: str
-    type_code: int
-    precision: int | None = None
-    scale: int | None = None
-
-
-class FakeArrowCursor:
-    """Stand-in for a SnowflakeCursor serving SELECTs as Arrow tables, as fetch_arrow_all does.
-
-    `results` maps a relation to its result metadata and the Arrow table the connector would
-    hand over (upper-case names, value-dependent types). Live semantics (probe 2026-11-24):
-    an empty result is None unless force_return_table. The context query answers with the
-    session's role and available roles. A relation in `fail_on` raises, as a lost connection.
-    """
-
-    def __init__(
-        self,
-        results: dict[str, tuple[list[Column], pa.Table]],
-        role: str = "CRYPTO_REPORTER",
-        available_roles: Sequence[str] = ("CRYPTO_REPORTER", "PUBLIC"),
-        fail_on: str | None = None,
-    ) -> None:
-        self._results = results
-        self._context = (role, json.dumps(list(available_roles)))
-        self._fail_on = fail_on
-        self._current: tuple[list[Column], pa.Table] | None = None
-        self._row: tuple[str, str] | None = None
-        self.executed: list[str] = []
-        self.fetch_kwargs: list[dict[str, Any]] = []
-
-    @property
-    def description(self) -> list[Column] | None:
-        return self._current[0] if self._current else None
-
-    @property
-    def sfqid(self) -> str | None:
-        return f"query-{len(self.executed)}" if self.executed else None
-
-    def execute(self, command: str, /) -> FakeArrowCursor:
-        self.executed.append(command)
-        if command.startswith("SELECT CURRENT_ROLE()"):
-            self._row, self._current = self._context, None
-            return self
-        relation = command.split(" FROM ", 1)[1].split()[0]
-        if relation == self._fail_on:
-            raise RuntimeError(f"connection lost while reading {relation}")
-        self._row, self._current = None, self._results[relation]
-        return self
-
-    def fetchone(self) -> tuple[str, str] | None:
-        return self._row
-
-    def fetch_arrow_all(
-        self, force_return_table: bool = False, force_microsecond_precision: bool | None = None
-    ) -> pa.Table | None:
-        self.fetch_kwargs.append(
-            {
-                "force_return_table": force_return_table,
-                "force_microsecond_precision": force_microsecond_precision,
-            }
-        )
-        if self._current is None:
-            raise AssertionError("fetch_arrow_all without a SELECT")
-        table = self._current[1]
-        if table.num_rows == 0 and not force_return_table:
-            return None
-        return table
-
-    def __enter__(self) -> FakeArrowCursor:
-        return self
-
-    def __exit__(self, *exc_info: object) -> None:
-        return None
-
-
-class FakeArrowConnection:
-    """Stand-in for the reporter's SnowflakeConnection: hands out one FakeArrowCursor."""
-
-    def __init__(self, cursor: FakeArrowCursor) -> None:
-        self._cursor = cursor
-
-    def cursor(self) -> FakeArrowCursor:
-        return self._cursor
-
-    def __enter__(self) -> FakeArrowConnection:
-        return self
-
-    def __exit__(self, *exc_info: object) -> None:
-        return None

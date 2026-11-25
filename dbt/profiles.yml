@@ -1,22 +1,20 @@
-# Connection of the dbt service user. No secrets and no account id in this file:
-# they come from the environment (.env in the repo root, loaded by dbt 1.12 itself).
-#   SNOWFLAKE_ACCOUNT                            shared with the loader
-#   SNOWFLAKE_DBT_PRIVATE_KEY_PATH               absolute path: dbt does not expand ~
-#   DBT_ENV_SECRET_SNOWFLAKE_DBT_KEY_PASSPHRASE  DBT_ENV_SECRET_*: masked in dbt logs
-# User, role, warehouse and schemas mirror snowflake/setup.sql (section 7).
+# Connection of dbt to the DuckDB warehouse: one local file, no account, no secrets.
+# The path comes from the environment (.env in the repo root, loaded by dbt 1.12 itself):
+#   DUCKDB_PATH   the warehouse file, e.g. warehouse/crypto_dwh.duckdb - relative to the
+#                 working directory (run dbt from the repo root); its directory must exist
 crypto_market_dwh:
   target: prod
   outputs:
     prod:
-      type: snowflake
-      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
-      user: CRYPTO_DBT
-      private_key_path: "{{ env_var('SNOWFLAKE_DBT_PRIVATE_KEY_PATH') }}"
-      private_key_passphrase: "{{ env_var('DBT_ENV_SECRET_SNOWFLAKE_DBT_KEY_PASSPHRASE') }}"
-      role: CRYPTO_TRANSFORMER
-      warehouse: CRYPTO_WH
-      database: CRYPTO_DWH
-      schema: STAGING
+      type: duckdb
+      path: "{{ env_var('DUCKDB_PATH') }}"
+      schema: staging
       threads: 4
-      # Finds every dbt statement in QUERY_HISTORY (cost per run).
-      query_tag: crypto_dwh_dbt
+      settings:
+        # timestamptz is shown in the session's zone: every reader of the warehouse uses UTC.
+        TimeZone: UTC
+        # Two pipelines share a 6 GB Docker VM until the switch-over; DuckDB spills to disk.
+        # GiB: DuckDB reads GB as 10^9 bytes.
+        memory_limit: 1GiB
+        # DuckDB's own worker threads (default: every core); not dbt's threads above.
+        threads: 4

@@ -7,7 +7,6 @@
 !analysis/
 !dbt/
 !config/
-!snowflake/
 !tests/
 !tests_airflow/
 !pyproject.toml
@@ -15,7 +14,6 @@
 !requirements-dbt.txt
 !requirements-dev.txt
 !requirements-dashboard.txt
-!docker/with-private-keys.sh
 
 # Generated files and secrets inside the allowed directories stay out too.
 **/__pycache__/

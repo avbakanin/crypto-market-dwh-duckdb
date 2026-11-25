@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from analysis import landing_zone_fingerprint as lzf
-from ingestion import load_raw
+from ingestion import datasets
 from ingestion.batches import write_manifest
 from tests.factories import START_MS, make_funding, make_klines
 
@@ -99,8 +99,8 @@ def test_no_batch_up_to_until_is_an_error(klines_root: Path) -> None:
 
 
 def test_every_dataset_has_fields_and_the_baseline_relation_name() -> None:
-    assert set(lzf.FIELDS) == {d.name for d in load_raw.DATASETS}
-    names = {lzf.relation_name(d.table) for d in load_raw.DATASETS}
+    assert set(lzf.FIELDS) == {d.name for d in datasets.DATASETS}
+    names = {lzf.relation_name(d.table) for d in datasets.DATASETS}
     assert "binance_spot_klines_1h" in names and "binance_futures_funding_rate" in names
 
 
@@ -149,7 +149,7 @@ def test_differences_name_wrong_and_missing_metrics_and_skip_inexact(tmp_path: P
 
 @pytest.fixture
 def one_dataset(monkeypatch: pytest.MonkeyPatch, klines_root: Path) -> None:
-    monkeypatch.setattr(lzf, "DATASETS", (replace(load_raw.KLINES, landing_dir=klines_root),))
+    monkeypatch.setattr(lzf, "DATASETS", (replace(datasets.KLINES, landing_dir=klines_root),))
 
 
 def baseline_of(path: Path, overrides: dict[str, str]) -> Path:

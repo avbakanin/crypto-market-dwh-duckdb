@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 #
 # The official Airflow image plus this project. Airflow keeps its own tested
-# environment (its constraints pin snowflake-connector-python 4.8.1); the
+# environment (its constraints are not ours); the
 # project runs from a separate venv built from the same pinned requirements
 # as the local .venv, so ingestion and dbt behave exactly as on the host.
 #
@@ -36,9 +36,6 @@ RUN /usr/python/bin/python -m venv "${PROJECT_VENV}" \
     && python -m pip check
 
 COPY --chown=airflow:0 . ${PROJECT_HOME}
-# Copies the Snowflake keys to owner-only files before a command starts
-# (see the script); compose puts it in front of every project command.
-COPY --chown=airflow:0 --chmod=0755 docker/with-private-keys.sh /usr/local/bin/with-private-keys
 RUN cd "${PROJECT_HOME}" && "${PROJECT_VENV}/bin/dbt" deps --project-dir dbt
 
 

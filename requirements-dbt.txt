@@ -1,5 +1,5 @@
-# dbt Core 1.12 + Snowflake adapter, pinned: a snapshot of a clean venv built from
-# requirements.txt plus dbt-core==1.12.7 and dbt-snowflake==1.12.5 (pip check: no conflicts).
+# dbt Core 1.12 + DuckDB adapter, pinned: a snapshot of a clean venv built from
+# requirements.txt plus dbt-core==1.12.7 and dbt-duckdb==1.11.1 (pip check: no conflicts).
 # Installed into the same .venv as ingestion: pip install -r requirements-dbt.txt
 -r requirements.txt
 agate==1.9.1
@@ -13,9 +13,9 @@ dbt-adapters==1.24.6
 dbt-common==1.39.0
 dbt-core-experimental-parser==2.0.11
 dbt-core==1.12.7
+dbt-duckdb==1.11.1
 dbt-extractor==0.6.0
 dbt-protos==1.0.615
-dbt-snowflake==1.12.5
 deepdiff==8.6.2
 importlib_metadata==10.2.0
 isodate==0.7.2
@@ -35,12 +35,13 @@ orderly-set==5.5.0
 packaging==26.3
 parsedatetime==2.6
 pathspec==1.0.4
+protobuf==6.33.6
 pydantic==2.14.4
 pydantic_core==2.50.5
-pyOpenSSL==26.4.0
 python-dateutil==2.9.0.post0
 python-slugify==9.2.0
 pytimeparse==1.1.10
+pytz==2026.6
 PyYAML==6.0.4
 RapidFuzz==3.14.6
 referencing==0.37.0
