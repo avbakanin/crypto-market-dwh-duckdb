@@ -7,7 +7,7 @@ import os
 import shutil
 import sys
 from collections.abc import Iterator
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +16,8 @@ import pytest
 
 from dashboard import data
 from dashboard.data import PumpFilter, Snapshot, SnapshotError
+from ingestion import export_marts
+from ingestion.warehouse import connect
 from tests.factories import EXPORT_ID, EXPORTED_AT, make_mart_rows, utc, write_mart_export
 
 
@@ -168,6 +170,31 @@ def test_export_time_is_normalized_to_utc(tmp_path: Path) -> None:
     assert snapshot is not None
     assert snapshot.exported_at == EXPORTED_AT
     assert snapshot.exported_at.utcoffset() == timedelta(0)
+
+
+def test_dashboard_reads_the_files_the_export_writes(tmp_path: Path) -> None:
+    """The contract between ingestion/export_marts.py and the export readers: directory
+    name, manifest keys, file names. The test warehouse's tables have the columns id, n, x,
+    d0, f, ts, flag and day, so the contract here asks for two of them in every table."""
+    from tests.test_export_marts import create_mart
+
+    names = [export.name for export in export_marts.EXPORTS]
+    assert {*data.REQUIRED_COLUMNS, *data.OPTIONAL_COLUMNS} <= set(names)
+    every_table = {n: frozenset({"id", "ts"}) for n in names}
+    as_of = datetime(2026, 11, 24, 12, 7, 30, tzinfo=UTC)
+    export_dir = tmp_path / "marts" / "20261124T120730Z"
+    with connect(tmp_path / "test.duckdb") as con:
+        con.execute("CREATE SCHEMA marts; CREATE SCHEMA dq")
+        for export in export_marts.EXPORTS:
+            create_mart(con, export, rows=3)
+        export_marts.write_export(con, export_dir, as_of, "test.duckdb")
+
+    snapshot = data.latest_snapshot(tmp_path / "marts", required=every_table, optional={})
+    assert snapshot is not None
+    assert (snapshot.export_id, snapshot.exported_at) == ("20261124T120730Z", as_of)
+    assert snapshot.tables == tuple(names)
+    with data.open_snapshot(snapshot) as snap:
+        assert data.scalar(snap, "SELECT count(*) FROM dq_data_coverage") == 3
 
 
 # --- loading ------------------------------------------------------------------------------

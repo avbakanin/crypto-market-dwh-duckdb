@@ -1,9 +1,10 @@
-# Runtime of ingestion/ (extracts, loader into DuckDB), pinned: a snapshot of a clean venv
-# built from requests, python-dotenv and duckdb (pip check: no conflicts).
+# Runtime of ingestion/ (extracts, loader into DuckDB, marts export), pinned: a snapshot of a
+# clean venv built from requests, python-dotenv, duckdb and pyarrow (pip check: no conflicts).
 certifi==2026.10.23
 charset-normalizer==3.5.2
 duckdb==2.0.1
 idna==3.20
+pyarrow==26.0.1
 python-dotenv==1.2.4
 requests==2.34.2
 urllib3==2.8.0

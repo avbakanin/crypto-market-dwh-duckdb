@@ -533,14 +533,15 @@ def write_mart_export(
         )
         pq.write_table(table, export_dir / f"{name}.parquet")
         tables[name] = {
-            "relation": f"CRYPTO_DWH.MARTS.{name.upper()}",
+            "relation": f"{'dq' if name.startswith('dq_') else 'marts'}.{name}",
             "rows": table.num_rows,
             "columns": {f.name: str(f.type) for f in schema},
         }
     manifest = {
         "export_id": export_id,
         "exported_at_utc": exported_at.isoformat(),
-        "source": "snowflake",
+        "source": "duckdb",
+        "database": "crypto_dwh.duckdb",
         "tables": tables,
     }
     (export_dir / "_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

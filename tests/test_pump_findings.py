@@ -12,6 +12,7 @@ import pytest
 
 from analysis import pump_findings as pf
 from dashboard.data import SnapshotError
+from ingestion.export_marts import EXPORTS
 from tests.factories import EXPORT_ID, make_mart_rows, write_mart_export
 
 D1, D2, D3 = date(2026, 3, 1), date(2026, 3, 2), date(2026, 3, 3)
@@ -224,3 +225,7 @@ def test_too_few_resamples_are_refused(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc:
         pf.main(["--marts", str(tmp_path), "--boot", "99"])
     assert exc.value.code == 2
+
+
+def test_the_export_writes_every_table_the_analysis_reads() -> None:
+    assert set(pf.CONTRACT) <= {export.name for export in EXPORTS}
