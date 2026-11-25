@@ -28,7 +28,7 @@ select
     coalesce(
         split_part(tested_node_unique_id, '.', -1),
         nullif(
-            replace(regexp_replace(depends_on_nodes, '[^,.]+[.][^,.]+[.]', ''), ',', ', '),
+            replace(regexp_replace(depends_on_nodes, '[^,.]+[.][^,.]+[.]', '', 'g'), ',', ', '),
             ''
         )
     ) as model_name,
@@ -41,7 +41,8 @@ select
     failures_relation,
     message,
     completed_at,
-    -- Snowflake's clock, unlike the dbt machine's run_started_at and completed_at.
+    -- The warehouse's clock (current_timestamp of the hook's transaction), unlike the dbt
+    -- process's run_started_at and completed_at.
     _logged_at as logged_at,
     row_number() over (
         partition by node_unique_id

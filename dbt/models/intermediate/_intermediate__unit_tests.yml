@@ -1,7 +1,7 @@
 version: 2
 
 # Unit tests of the intermediate SQL on hand-made rows. Inputs are models with typed
-# columns, so dict fixtures are enough (format: sql is needed only to build a VARIANT);
+# columns, so dict fixtures are enough (format: sql is needed only for JSON payloads);
 # unlisted columns are NULL. Windows are shrunk through vars to keep fixtures small.
 # Prices are chosen so that returns and z-scores are exact in binary and decimal.
 

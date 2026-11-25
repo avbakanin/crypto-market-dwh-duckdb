@@ -20,11 +20,10 @@ flags:
 
 # DQ log (macros/dq_log.sql): the log table is created before the run if missing,
 # and the result of every node is appended after it, whatever the command.
-# Off during the port: the macros are still Snowflake SQL; step 10b.5 brings them back.
-# on-run-start:
-#   - "{{ create_dq_log() }}"
-# on-run-end:
-#   - "{{ log_dbt_results(results) }}"
+on-run-start:
+  - "{{ create_dq_log() }}"
+on-run-end:
+  - "{{ log_dbt_results(results) }}"
 
 models:
   crypto_market_dwh:
@@ -72,6 +71,9 @@ vars:
   # Ordinary hours per pump event and pool in fct_pump_control_window (the profile's
   # comparison): 30 x ~200 events is enough for stable control medians per offset.
   control_hours_per_event: 30
+  # The DQ log reconciliation (tag dq_log) runs right after a build: the build it checks
+  # must have started within this many minutes (the DAG's run timeout is 2 hours).
+  dq_log_max_build_age_minutes: 120
 
 seeds:
   crypto_market_dwh:

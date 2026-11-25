@@ -9,25 +9,25 @@ unit_tests:
     given:
       - input: source('dq', 'dbt_node_results')
         rows:
-          - {invocation_id: a, run_started_at: "2026-11-21 10:00:00 +00:00", resource_type: test,
+          - {invocation_id: a, run_started_at: "2026-11-21 10:00:00+00:00", resource_type: test,
              node_unique_id: test.p.volume, node_name: volume, generic_test: dbt_utils.expression_is_true,
              tested_node_unique_id: model.crypto_market_dwh.int_binance__hourly_returns,
              severity: warn, status: warn, failures: 24}
-          - {invocation_id: a, run_started_at: "2026-11-21 10:00:00 +00:00", resource_type: model,
+          - {invocation_id: a, run_started_at: "2026-11-21 10:00:00+00:00", resource_type: model,
              node_unique_id: model.crypto_market_dwh.dim_symbol, node_name: dim_symbol, status: success}
-          - {invocation_id: a, run_started_at: "2026-11-21 10:00:00 +00:00", resource_type: test,
+          - {invocation_id: a, run_started_at: "2026-11-21 10:00:00+00:00", resource_type: test,
              node_unique_id: test.p.divergence, node_name: divergence,
              depends_on_nodes: "model.crypto_market_dwh.stg_binance__funding_rate,model.crypto_market_dwh.stg_binance__klines_1h",
              severity: warn, status: pass, failures: 0}
-          - {invocation_id: a, run_started_at: "2026-11-21 10:00:00 +00:00", resource_type: unit_test,
+          - {invocation_id: a, run_started_at: "2026-11-21 10:00:00+00:00", resource_type: unit_test,
              node_unique_id: unit_test.p.klines, node_name: klines,
              tested_node_unique_id: model.crypto_market_dwh.stg_binance__klines_1h,
              status: pass, failures: 0}
-          - {invocation_id: b, run_started_at: "2026-11-21 11:00:00 +00:00", resource_type: test,
+          - {invocation_id: b, run_started_at: "2026-11-21 11:00:00+00:00", resource_type: test,
              node_unique_id: test.p.volume, node_name: volume, generic_test: dbt_utils.expression_is_true,
              tested_node_unique_id: model.crypto_market_dwh.int_binance__hourly_returns,
              severity: warn, status: warn, failures: 25}
-          - {invocation_id: b, run_started_at: "2026-11-21 11:00:00 +00:00", resource_type: test,
+          - {invocation_id: b, run_started_at: "2026-11-21 11:00:00+00:00", resource_type: test,
              node_unique_id: test.p.unique, node_name: unique, generic_test: unique,
              tested_node_unique_id: model.crypto_market_dwh.dim_symbol,
              severity: ERROR, status: pass, failures: 0}
@@ -53,26 +53,26 @@ unit_tests:
     given:
       - input: ref('stg_binance__klines_1h')
         rows:
-          - {symbol: AAAUSDT, open_time: "2026-11-24 06:00:00 +00:00", _batch_id: 20261124T070712Z}
-          - {symbol: AAAUSDT, open_time: "2026-11-24 07:00:00 +00:00", _batch_id: 20261124T080711Z}
-          - {symbol: BBBUSDT, open_time: "2026-11-24 05:00:00 +00:00", _batch_id: 20261124T070712Z}
+          - {symbol: AAAUSDT, open_time: "2026-11-24 06:00:00+00:00", _batch_id: 20261124T070712Z}
+          - {symbol: AAAUSDT, open_time: "2026-11-24 07:00:00+00:00", _batch_id: 20261124T080711Z}
+          - {symbol: BBBUSDT, open_time: "2026-11-24 05:00:00+00:00", _batch_id: 20261124T070712Z}
       - input: ref('stg_binance__funding_rate')
         rows:
-          - {contract_symbol: AAAUSDT, funding_hour: "2026-11-24 00:00:00 +00:00", _batch_id: 20261124T010700Z}
-          - {contract_symbol: AAAUSDT, funding_hour: "2026-11-24 08:00:00 +00:00", _batch_id: 20261124T080711Z}
+          - {contract_symbol: AAAUSDT, funding_hour: "2026-11-24 00:00:00+00:00", _batch_id: 20261124T010700Z}
+          - {contract_symbol: AAAUSDT, funding_hour: "2026-11-24 08:00:00+00:00", _batch_id: 20261124T080711Z}
       - input: ref('stg_binance__open_interest_1h')
         rows:
-          - {contract_symbol: AAAUSDT, snapshot_time: "2026-11-24 08:00:00 +00:00", _batch_id: 20261124T080711Z}
+          - {contract_symbol: AAAUSDT, snapshot_time: "2026-11-24 08:00:00+00:00", _batch_id: 20261124T080711Z}
       - input: ref('stg_binance__long_short_ratio_1h')
         rows:
-          - {contract_symbol: AAAUSDT, ratio_series: top_account, snapshot_time: "2026-11-24 07:00:00 +00:00", _batch_id: 20261124T070712Z}
-          - {contract_symbol: AAAUSDT, ratio_series: top_account, snapshot_time: "2026-11-24 08:00:00 +00:00", _batch_id: 20261124T080711Z}
-          - {contract_symbol: BBBUSDT, ratio_series: global_account, snapshot_time: "2026-11-24 06:00:00 +00:00", _batch_id: 20261124T070712Z}
+          - {contract_symbol: AAAUSDT, ratio_series: top_account, snapshot_time: "2026-11-24 07:00:00+00:00", _batch_id: 20261124T070712Z}
+          - {contract_symbol: AAAUSDT, ratio_series: top_account, snapshot_time: "2026-11-24 08:00:00+00:00", _batch_id: 20261124T080711Z}
+          - {contract_symbol: BBBUSDT, ratio_series: global_account, snapshot_time: "2026-11-24 06:00:00+00:00", _batch_id: 20261124T070712Z}
     expect:
       rows:
-        - {dataset: klines_1h, row_count: 3, symbol_count: 2, data_from: "2026-11-24 05:00:00 +00:00", data_to: "2026-11-24 08:00:00 +00:00", latest_batch_id: 20261124T080711Z}
-        - {dataset: funding_rate, row_count: 2, symbol_count: 1, data_from: "2026-11-24 00:00:00 +00:00", data_to: "2026-11-24 08:00:00 +00:00", latest_batch_id: 20261124T080711Z}
-        - {dataset: open_interest_1h, row_count: 1, symbol_count: 1, data_from: "2026-11-24 08:00:00 +00:00", data_to: "2026-11-24 08:00:00 +00:00", latest_batch_id: 20261124T080711Z}
-        - {dataset: top_account_ratio_1h, row_count: 2, symbol_count: 1, data_from: "2026-11-24 07:00:00 +00:00", data_to: "2026-11-24 08:00:00 +00:00", latest_batch_id: 20261124T080711Z}
+        - {dataset: klines_1h, row_count: 3, symbol_count: 2, data_from: "2026-11-24 05:00:00+00:00", data_to: "2026-11-24 08:00:00+00:00", latest_batch_id: 20261124T080711Z}
+        - {dataset: funding_rate, row_count: 2, symbol_count: 1, data_from: "2026-11-24 00:00:00+00:00", data_to: "2026-11-24 08:00:00+00:00", latest_batch_id: 20261124T080711Z}
+        - {dataset: open_interest_1h, row_count: 1, symbol_count: 1, data_from: "2026-11-24 08:00:00+00:00", data_to: "2026-11-24 08:00:00+00:00", latest_batch_id: 20261124T080711Z}
+        - {dataset: top_account_ratio_1h, row_count: 2, symbol_count: 1, data_from: "2026-11-24 07:00:00+00:00", data_to: "2026-11-24 08:00:00+00:00", latest_batch_id: 20261124T080711Z}
         - {dataset: top_position_ratio_1h, row_count: 0, symbol_count: 0, data_from: null, data_to: null, latest_batch_id: null}
-        - {dataset: global_account_ratio_1h, row_count: 1, symbol_count: 1, data_from: "2026-11-24 06:00:00 +00:00", data_to: "2026-11-24 06:00:00 +00:00", latest_batch_id: 20261124T070712Z}
+        - {dataset: global_account_ratio_1h, row_count: 1, symbol_count: 1, data_from: "2026-11-24 06:00:00+00:00", data_to: "2026-11-24 06:00:00+00:00", latest_batch_id: 20261124T070712Z}

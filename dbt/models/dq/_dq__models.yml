@@ -37,7 +37,7 @@ models:
       - name: failures
         description: Failing rows; equals the row count of failures_relation (tag dq_log checks it).
       - name: logged_at
-        description: When the hook appended the row (Snowflake's clock).
+        description: When the hook appended the row (the warehouse's clock).
       - name: is_latest
         description: True on the last result of each check.
         data_tests: [not_null]

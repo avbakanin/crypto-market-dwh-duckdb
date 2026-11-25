@@ -3,10 +3,10 @@ sources:
     description: >
       Written by dbt itself, not by the loader: the DQ log the project hooks keep
       (macros/dq_log.sql). on-run-start creates the table, on-run-end appends to it.
-    schema: DQ
+    schema: dq
     tables:
       - name: dbt_node_results
-        identifier: DBT_NODE_RESULTS
+        identifier: dbt_node_results
         description: >
           One row per executed node (model, seed, test, unit test, source freshness) per
           dbt invocation. Append-only; times in UTC. Raw dbt values: severity as
@@ -22,7 +22,7 @@ sources:
           - name: run_started_at
             description: When the invocation started.
           - name: dbt_command
-            description: build, test, run, seed, source (freshness).
+            description: build, test, run, seed, freshness (dbt source freshness).
           - name: invocation_command
             description: The command line, e.g. "dbt build --select staging".
           - name: node_unique_id

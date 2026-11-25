@@ -10,14 +10,15 @@
 
 with datasets as (
 
-    select column1 as dataset
-    from values
+    select dataset
+    from (values
         ('klines_1h'),
         ('funding_rate'),
         ('open_interest_1h'),
         {%- for series in ratio_series %}
         ('{{ series }}_ratio_1h'){{ ',' if not loop.last }}
         {%- endfor %}
+    ) as v(dataset)
 
 ),
 
@@ -28,7 +29,7 @@ klines as (
         count(*) as row_count,
         count(distinct symbol) as symbol_count,
         min(open_time) as data_from,
-        dateadd(hour, 1, max(open_time)) as data_to,
+        max(open_time) + interval 1 hour as data_to,
         max(_batch_id) as latest_batch_id
     from {{ ref('stg_binance__klines_1h') }}
 

@@ -8,15 +8,19 @@
 
 {% macro dq_log_relation() %}
     {{ return(api.Relation.create(
-        database=target.database, schema='DQ', identifier='DBT_NODE_RESULTS')) }}
+        database=target.database, schema='dq', identifier='dbt_node_results')) }}
 {% endmacro %}
 
 
-{# on-run-start. Metadata only: no warehouse. A new column needs an ALTER TABLE. #}
+{#
+  on-run-start. A new database file has no dq schema until a test stores its findings
+  there, and the hook runs before any node: create both. A new column needs an ALTER TABLE.
+#}
 {% macro create_dq_log() %}
+create schema if not exists {{ dq_log_relation().without_identifier() }};
 create table if not exists {{ dq_log_relation() }} (
     invocation_id varchar not null,
-    run_started_at timestamp_tz not null,
+    run_started_at timestamptz not null,
     dbt_command varchar not null,
     invocation_command varchar,
     target_name varchar not null,
@@ -32,20 +36,21 @@ create table if not exists {{ dq_log_relation() }} (
     store_failures_as varchar,
     failures_relation varchar,
     status varchar not null,
-    failures number(38, 0),
-    execution_time_s number(38, 3),
-    completed_at timestamp_tz,
+    failures bigint,
+    execution_time_s decimal(38, 3),
+    completed_at timestamptz,
     message varchar,
-    _logged_at timestamp_tz not null
-)
-comment = 'dbt results per node and invocation, appended by the on-run-end hook'
+    _logged_at timestamptz not null
+);
+comment on table {{ dq_log_relation() }} is
+    'dbt results per node and invocation, appended by the on-run-end hook'
 {% endmacro %}
 
 
 {#
   One list of values per result, in the column order of dq_log_columns(). Strings are
   made plain str (~ ''): dbt's statuses and severities are str subclasses, and a
-  connector that picks a converter by class name would reject them. Times are UTC.
+  driver that picks a converter by class name would reject them. Times are UTC.
 #}
 {% macro dq_log_columns() %}
     {{ return([
@@ -108,33 +113,37 @@ comment = 'dbt results per node and invocation, appended by the on-run-end hook'
 {% endmacro %}
 
 
-{# INSERT for row_count results, one %s bind variable per value. #}
+{#
+  INSERT for row_count results, one ? bind parameter per value. dbt's times come as UTC
+  text; the offset is spelt out, so they do not depend on the session's TimeZone.
+#}
 {% macro dq_log_insert_sql(row_count) %}
     {% set columns = dq_log_columns() %}
-    {% set placeholders = (['%s'] * (columns | length)) | join(', ') %}
+    {% set placeholders = (['?'] * (columns | length)) | join(', ') %}
     {% set insert_sql %}
 insert into {{ dq_log_relation() }} ({{ columns | join(', ') }}, _logged_at)
 select
-    column1,
-    to_timestamp_tz(column2 || ' +00:00', 'YYYY-MM-DD HH24:MI:SS.FF6 TZH:TZM'),
-    column3, column4, column5, column6, column7, column8, column9, column10, column11,
-    column12, column13, column14, column15, column16, column17, column18, column19,
-    to_timestamp_tz(column20 || ' +00:00', 'YYYY-MM-DD HH24:MI:SS.FF6 TZH:TZM'),
-    column21,
-    convert_timezone('UTC', current_timestamp())
-from values
+    c1,
+    strptime(c2 || ' +0000', '%Y-%m-%d %H:%M:%S.%f %z'),
+    c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19,
+    strptime(c20 || ' +0000', '%Y-%m-%d %H:%M:%S.%f %z'),
+    c21,
+    current_timestamp
+from (values
 {%- for _ in range(row_count) %}
     ({{ placeholders }}){{ ',' if not loop.last }}
 {%- endfor %}
+) as v({% for i in range(1, columns | length + 1) %}c{{ i }}{{ ', ' if not loop.last }}{% endfor %})
     {% endset %}
     {{ return(insert_sql) }}
 {% endmacro %}
 
 
 {#
-  on-run-end: appends the results with bind variables (no quoting by hand), 200 rows per
-  INSERT. Snowflake autocommits each statement. A failure here fails the dbt invocation:
-  a run without its log entry should not look green.
+  on-run-end: appends the results with bind parameters (no quoting by hand), 200 rows per
+  INSERT. dbt-duckdb runs the hook inside a transaction and rolls it back afterwards:
+  without the commit the log stays empty and nothing says so. A failure here fails the
+  dbt invocation: a run without its log entry should not look green.
 #}
 {% macro log_dbt_results(results) %}
     {% if execute and results %}
@@ -146,5 +155,6 @@ from values
             {% do adapter.add_query(
                 dq_log_insert_sql(chunk | length), bindings=bindings, abridge_sql_log=True) %}
         {% endfor %}
+        {% do adapter.commit() %}
     {% endif %}
 {% endmacro %}
