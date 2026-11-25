@@ -53,7 +53,8 @@ select
     '{{ name }}' as rule,
     signal_date,
     count(*) as signal_hours,
-    count_if(is_followed_by_pump) as followed_by_pump
+    -- bigint: count_if is a HUGEINT in DuckDB, and Parquet would store it as a double.
+    count_if(is_followed_by_pump)::bigint as followed_by_pump
 from scored
 where {{ condition }}
 group by signal_date
