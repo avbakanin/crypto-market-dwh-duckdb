@@ -73,6 +73,13 @@ would not be meaningful.
 4. Row level: compare the marts with the pinned export, using `EXCEPT` both ways on the
    event-side columns.
 
+The commands: `DUCKDB_PATH=warehouse/baseline_20261125T090706Z.duckdb` for each of
+`python -m ingestion.load_raw --until 20261125T090706Z` and
+`python -m analysis.compare_baseline --layer raw [--layer ...] --report
+docs/duckdb_vs_snowflake.md`. The DuckDB side of each layer is
+`analysis/baseline_duckdb/<layer>.sql`; the result is
+[docs/duckdb_vs_snowflake.md](duckdb_vs_snowflake.md).
+
 The batches up to the cutoff must outlive the trial. They are immutable, so backing up
 `data/raw` once is enough.
 
