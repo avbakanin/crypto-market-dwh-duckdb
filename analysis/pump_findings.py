@@ -1,4 +1,4 @@
-"""The pump findings, recomputed from the newest mart export (data/marts): no Snowflake.
+"""The pump findings, recomputed from the newest mart export (data/marts), not the warehouse.
 
     python -m analysis.pump_findings [--marts DIR] [--boot N]
 

@@ -456,7 +456,7 @@ def dq_tab(con: duckdb.DuckDBPyConnection, snapshot: Snapshot) -> None:
     st.caption(
         "Stop checks protect the marts: one failing stops the pipeline before the export. "
         "Warn checks describe the source (gaps Binance never filled, outliers) and are kept "
-        "as findings in Snowflake's DQ schema."
+        "as findings in the warehouse's dq schema."
     )
 
     coverage = data.coverage(con, snapshot)
@@ -489,7 +489,7 @@ def dq_tab(con: duckdb.DuckDBPyConnection, snapshot: Snapshot) -> None:
         "failures": number("Rows found"),
         "severity": "Severity",
         "model_name": "Model",
-        "failures_relation": "Rows in (Snowflake)",
+        "failures_relation": "Findings table",
         "check_type": "Type",
         "logged_at": moment("Logged (UTC)"),
         "in_latest_build": st.column_config.CheckboxColumn("In newest build"),

@@ -5,7 +5,7 @@
 #   docker compose up -d                  # Airflow UI on http://localhost:8080
 #   docker compose run --rm project python -m ingestion.check_snowflake
 #   docker compose run --rm project dbt build
-#   docker compose build dashboard          # dashboard on http://localhost:8501
+#   docker compose build dashboard          # dashboard on http://localhost:8502
 #
 # Compose reads the repo's .env only to fill in ${...} below; a container gets
 # nothing from it unless the variable is listed under `environment:`. Host
@@ -26,7 +26,8 @@
 # `docker compose config` prints the file with secrets filled in: run it only
 # as `docker compose config --quiet`.
 
-name: crypto-market-dwh
+# Not crypto-market-dwh: that is the Snowflake original's stack on the same machine.
+name: crypto-market-dwh-duckdb
 
 x-project-env: &project-env
   # Loader: service user CRYPTO_LOADER (ingestion/clients/snowflake_conn.py).
@@ -231,14 +232,14 @@ services:
     build:
       context: .
       target: dashboard
-    image: crypto-market-dwh-dashboard:dev
+    image: crypto-market-dwh-duckdb-dashboard:dev
     environment:
       MARTS_DIR: /data/marts
     volumes:
       - ./data/marts:/data/marts:ro
-    # Loopback only, like the Airflow UI.
+    # Loopback only, like the Airflow UI; 8502 on the host, the original's dashboard has 8501.
     ports:
-      - "127.0.0.1:8501:8501"
+      - "127.0.0.1:8502:8501"
     read_only: true
     tmpfs:
       - /tmp
