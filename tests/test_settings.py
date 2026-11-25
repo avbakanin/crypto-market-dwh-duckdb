@@ -43,3 +43,18 @@ def test_warehouse_path_is_read_on_each_call(
 ) -> None:
     monkeypatch.setenv("DUCKDB_PATH", str(tmp_path / "a.duckdb"))
     assert settings.warehouse_path() == tmp_path / "a.duckdb"
+
+
+@pytest.mark.parametrize("mode", ["follow", "own"])
+def test_pipeline_mode_is_follow_or_own(mode: str) -> None:
+    assert settings.pipeline_mode({"PIPELINE_MODE": mode}) == mode
+
+
+@pytest.mark.parametrize(
+    "env",
+    [{}, {"PIPELINE_MODE": ""}, {"PIPELINE_MODE": "Follow"}, {"PIPELINE_MODE": "owner"}],
+    ids=["unset", "empty", "case", "other"],
+)
+def test_pipeline_mode_has_no_default_and_no_guess(env: dict[str, str]) -> None:
+    with pytest.raises(ValueError, match="PIPELINE_MODE must be one of follow, own"):
+        settings.pipeline_mode(env)
