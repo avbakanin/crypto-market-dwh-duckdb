@@ -224,6 +224,8 @@ __marimo__/
 
 # project
 data/
+# Editor settings of one machine (VS Code writes its interpreter choice here).
+.vscode/
 # The DuckDB warehouse: a cache rebuilt from the landing zone. The directory stays in git
 # (DuckDB does not create the directory of its file).
 warehouse/*
