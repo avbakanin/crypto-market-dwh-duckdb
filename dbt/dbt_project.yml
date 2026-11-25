@@ -1,4 +1,4 @@
-# dbt project: RAW (loaded by ingestion/) -> STAGING -> MARTS in Snowflake.
+# dbt project: RAW (loaded by ingestion/) -> staging -> marts in one DuckDB file.
 # Run from the repo root: .env sets DBT_PROJECT_DIR=dbt and DBT_PROFILES_DIR=dbt,
 # and dbt loads .env itself. Connection: profiles.yml (no secrets, env vars only).
 name: crypto_market_dwh
@@ -20,30 +20,31 @@ flags:
 
 # DQ log (macros/dq_log.sql): the log table is created before the run if missing,
 # and the result of every node is appended after it, whatever the command.
-on-run-start:
-  - "{{ create_dq_log() }}"
-on-run-end:
-  - "{{ log_dbt_results(results) }}"
+# Off during the port: the macros are still Snowflake SQL; step 10b.5 brings them back.
+# on-run-start:
+#   - "{{ create_dq_log() }}"
+# on-run-end:
+#   - "{{ log_dbt_results(results) }}"
 
 models:
   crypto_market_dwh:
     staging:
-      +schema: STAGING
-      # Table, rebuilt in full: one CTAS per model per run (seconds on X-Small); tests
+      +schema: staging
+      # Table, rebuilt in full: one CTAS per model per run (seconds); tests
       # and downstream models read a consistent snapshot instead of re-running the dedup.
       +materialized: table
     # Intermediate models live next to staging: one schema less to grant, and they are
     # building blocks of the marts, not a published interface.
     intermediate:
-      +schema: STAGING
+      +schema: staging
       +materialized: table
     marts:
-      +schema: MARTS
+      +schema: marts
       +materialized: table
     # Views over the DQ log: they must see the rows the on-run-end hook appends
     # after the models are built.
     dq:
-      +schema: DQ
+      +schema: dq
       +materialized: view
 
 data_tests:
@@ -53,7 +54,7 @@ data_tests:
     # a view, free to create and empty unless the test fails. Warn tests override
     # this with a table: a snapshot of the findings that reports read.
     # No `limit`: it caps the stored rows and the failure count alike.
-    +schema: DQ
+    +schema: dq
     +store_failures_as: view
 
 vars:
@@ -74,21 +75,21 @@ vars:
 
 seeds:
   crypto_market_dwh:
-    +schema: STAGING
+    +schema: staging
     # Explicit types: inference would make rates FLOAT and timestamps VARCHAR.
     symbols:
       +column_types:
         symbol: varchar
         base_asset: varchar
         quote_asset: varchar
-        avg_quote_volume_30d_usdt: number(38, 0)
-        quote_volume_24h_usdt: number(38, 0)
+        avg_quote_volume_30d_usdt: decimal(38, 0)
+        quote_volume_24h_usdt: decimal(38, 0)
         first_candle_date: date
-        selected_at_utc: timestamp_tz
+        selected_at_utc: timestamptz
     perpetuals:
       +column_types:
         spot_symbol: varchar
         futures_symbol: varchar
-        contract_multiplier: number(38, 0)
-        interest_rate_8h: number(38, 8)
-        mapped_at_utc: timestamp_tz
+        contract_multiplier: decimal(38, 0)
+        interest_rate_8h: decimal(38, 8)
+        mapped_at_utc: timestamptz

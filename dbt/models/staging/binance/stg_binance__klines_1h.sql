@@ -12,22 +12,22 @@ typed as (
 
     select
         symbol,
-        -- Cast the VARIANT to NUMBER first: a timestamp straight from VARIANT depends on
-        -- the session time zone. convert_timezone gives an explicit +00:00.
-        payload[0]::number(38, 0) as open_time_ms,
-        payload[6]::number(38, 0) as close_time_ms,
-        convert_timezone('UTC', to_timestamp_tz(payload[0]::number(38, 0), 3)) as open_time,
-        convert_timezone('UTC', to_timestamp_tz(payload[6]::number(38, 0), 3)) as close_time,
+        -- Unix ms as bigint; epoch_ms() gives a timestamp, read as UTC by the cast to
+        -- timestamptz in the profile's UTC session (the epoch round trip test checks it).
+        (payload->>0)::bigint as open_time_ms,
+        (payload->>6)::bigint as close_time_ms,
+        epoch_ms((payload->>0)::bigint)::timestamptz as open_time,
+        epoch_ms((payload->>6)::bigint)::timestamptz as close_time,
         -- Prices and volumes arrive as JSON strings: exact decimal cast, never float.
-        payload[1]::number(38, 8) as open_price,
-        payload[2]::number(38, 8) as high_price,
-        payload[3]::number(38, 8) as low_price,
-        payload[4]::number(38, 8) as close_price,
-        payload[5]::number(38, 8) as base_volume,
-        payload[7]::number(38, 8) as quote_volume,
-        payload[8]::number(38, 0) as trade_count,
-        payload[9]::number(38, 8) as taker_buy_base_volume,
-        payload[10]::number(38, 8) as taker_buy_quote_volume,
+        (payload->>1)::decimal(38, 8) as open_price,
+        (payload->>2)::decimal(38, 8) as high_price,
+        (payload->>3)::decimal(38, 8) as low_price,
+        (payload->>4)::decimal(38, 8) as close_price,
+        (payload->>5)::decimal(38, 8) as base_volume,
+        (payload->>7)::decimal(38, 8) as quote_volume,
+        (payload->>8)::bigint as trade_count,
+        (payload->>9)::decimal(38, 8) as taker_buy_base_volume,
+        (payload->>10)::decimal(38, 8) as taker_buy_quote_volume,
         payload,
         _batch_id,
         _file_row_number,

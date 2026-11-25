@@ -24,9 +24,8 @@ with points as (
 as_of as (
 
     -- _batch_id is the extract's UTC as-of moment: 20261121T120734Z.
-    select date_part(
-        epoch_millisecond, to_timestamp_ntz(max(_batch_id), 'YYYYMMDD"T"HH24MISS"Z"')
-    ) as as_of_ms
+    -- strptime gives a timestamp without a zone: its epoch is the UTC wall clock of the id.
+    select epoch_ms(strptime(max(_batch_id), '%Y%m%dT%H%M%SZ')) as as_of_ms
     from points
 
 ),
@@ -36,7 +35,8 @@ bounds as (
     select
         points.series,
         min(points.point_ms) as first_ms,
-        floor((any_value(as_of.as_of_ms) - {{ ready_after_minutes }} * 60000) / 3600000)
+        -- Integer division: / would give a DOUBLE in DuckDB.
+        (any_value(as_of.as_of_ms) - {{ ready_after_minutes }} * 60000) // 3600000
         * 3600000 as last_ms
     from points
     cross join as_of
@@ -46,9 +46,9 @@ bounds as (
 
 calendar as (
 
-    -- row_number, not seq4(): seq4() may have gaps.
-    select row_number() over (order by seq4()) - 1 as n
-    from table(generator(rowcount => {{ max_hours }}))
+    -- range() is dense: 0, 1, ..., max_hours - 1.
+    select range as n
+    from range({{ max_hours }})
 
 ),
 
@@ -63,7 +63,7 @@ expected as (
 
 select
     expected.series,
-    to_timestamp_ntz(expected.point_ms, 3) as missing_hour_utc,
+    epoch_ms(expected.point_ms) as missing_hour_utc,
     'missing' as issue
 from expected
 left join points
@@ -74,7 +74,7 @@ union all
 
 select
     series,
-    to_timestamp_ntz(first_ms, 3),
+    epoch_ms(first_ms),
     'series longer than the calendar of {{ max_hours }} hours: not fully checked'
 from bounds
 where (last_ms - first_ms) / 3600000 >= {{ max_hours }}

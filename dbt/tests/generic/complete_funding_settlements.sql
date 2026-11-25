@@ -23,9 +23,8 @@ with settlements as (
 
 as_of as (
 
-    select date_part(
-        epoch_millisecond, to_timestamp_ntz(max(_batch_id), 'YYYYMMDD"T"HH24MISS"Z"')
-    ) as as_of_ms
+    -- strptime gives a timestamp without a zone: its epoch is the UTC wall clock of the id.
+    select epoch_ms(strptime(max(_batch_id), '%Y%m%dT%H%M%SZ')) as as_of_ms
     from settlements
 
 ),
@@ -43,10 +42,9 @@ tail as (
     select
         last_per_contract.contract_symbol,
         last_per_contract.last_ms,
-        floor(
-            (as_of.as_of_ms - {{ publish_lag_minutes }} * 60000)
-            / (last_per_contract.interval_hours * 3600000)
-        ) * last_per_contract.interval_hours * 3600000 as expected_last_ms
+        (as_of.as_of_ms - {{ publish_lag_minutes }} * 60000)
+        // (last_per_contract.interval_hours * 3600000)
+        * last_per_contract.interval_hours * 3600000 as expected_last_ms
     from last_per_contract
     cross join as_of
 
@@ -54,7 +52,7 @@ tail as (
 
 select
     contract_symbol,
-    to_timestamp_ntz(hour_ms, 3) as settlement_hour_utc,
+    epoch_ms(hour_ms) as settlement_hour_utc,
     'previous settlement missing: ' || hours_since_previous || ' h after the last one, '
     || 'interval ' || interval_hours || ' h' as issue
 from settlements
@@ -64,8 +62,8 @@ union all
 
 select
     contract_symbol,
-    to_timestamp_ntz(expected_last_ms, 3),
-    'tail missing: last settlement at ' || to_varchar(to_timestamp_ntz(last_ms, 3))
+    epoch_ms(expected_last_ms),
+    'tail missing: last settlement at ' || epoch_ms(last_ms)::varchar
 from tail
 where last_ms < expected_last_ms
 

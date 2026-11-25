@@ -23,10 +23,10 @@ typed as (
     select
         symbol as contract_symbol,
         ratio_series,
-        payload:timestamp::number(38, 0) as snapshot_time_ms,
-        payload:longAccount::number(38, 8) as long_share,
-        payload:shortAccount::number(38, 8) as short_share,
-        payload:longShortRatio::number(38, 8) as long_short_ratio,
+        (payload->>'timestamp')::bigint as snapshot_time_ms,
+        (payload->>'longAccount')::decimal(38, 8) as long_share,
+        (payload->>'shortAccount')::decimal(38, 8) as short_share,
+        (payload->>'longShortRatio')::decimal(38, 8) as long_short_ratio,
         payload,
         _batch_id,
         _file_row_number,
@@ -56,7 +56,7 @@ select
     versioned.contract_symbol,
     perpetuals.spot_symbol,
     versioned.ratio_series,
-    convert_timezone('UTC', to_timestamp_tz(versioned.snapshot_time_ms, 3)) as snapshot_time,
+    epoch_ms(versioned.snapshot_time_ms)::timestamptz as snapshot_time,
     -- Shares of the population (accounts or position size) long and short, rounded to 4
     -- decimals by Binance; the ratio is long / short of the unrounded shares.
     versioned.long_share,

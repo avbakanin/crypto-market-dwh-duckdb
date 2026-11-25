@@ -4,10 +4,9 @@ sources:
   - name: binance
     description: >
       RAW journals loaded by ingestion/load_raw.py: one row per record exactly as Binance
-      returned it (payload VARIANT, numbers as strings), plus COPY lineage columns.
-      Append-only: overlapping batches keep every version; STAGING picks the latest batch.
-    database: CRYPTO_DWH
-    schema: RAW
+      returned it (payload JSON, numbers as strings), plus lineage columns of the batch file.
+      Append-only: overlapping batches keep every version; staging picks the latest batch.
+    schema: raw
     loader: ingestion/load_raw.py
     config:
       # Freshness on the data time, not the load time: a batch loaded now with old data is
@@ -23,8 +22,9 @@ sources:
           [open_time, open, high, low, close, volume, close_time, quote_volume, trades,
           taker_buy_base_volume, taker_buy_quote_volume, ignore], times in Unix ms UTC.
         config:
-          # A candle is complete at its close: open_time + 1 h.
-          loaded_at_field: "dateadd(hour, 1, to_timestamp_tz(payload[0]::number, 3))"
+          # A candle is complete at its close: open_time + 1 h. Unix ms -> timestamptz
+          # (the profile's session time zone is UTC).
+          loaded_at_field: "epoch_ms((payload->>0)::bigint)::timestamptz + interval 1 hour"
 
       - name: binance_futures_funding_rate
         description: >
@@ -32,7 +32,7 @@ sources:
           1000PEPEUSDT). fundingTime lands 0-26 ms after the hour: the hour is the key.
           Settles every 8 h (4 h for some contracts); markPrice is "" in old records.
         config:
-          loaded_at_field: "to_timestamp_tz(payload:fundingTime::number, 3)"
+          loaded_at_field: "epoch_ms((payload->>'fundingTime')::bigint)::timestamptz"
           freshness:
             # The newest settlement is up to 8 h old on a healthy table.
             warn_after: {count: 9, period: hour}
@@ -43,24 +43,24 @@ sources:
           Hourly open interest per perpetual contract. Binance serves only the latest ~30
           days: past that, history missing here is lost for good, so staleness is costly.
         config:
-          loaded_at_field: "to_timestamp_tz(payload:timestamp::number, 3)"
+          loaded_at_field: "epoch_ms((payload->>'timestamp')::bigint)::timestamptz"
 
       - name: binance_futures_top_account_ratio_1h
         description: >
           Hourly long/short ratio of the top 20% traders by margin balance, by accounts: the
           shares of those accounts long and short. Served ~30 days, like open interest.
         config:
-          loaded_at_field: "to_timestamp_tz(payload:timestamp::number, 3)"
+          loaded_at_field: "epoch_ms((payload->>'timestamp')::bigint)::timestamptz"
 
       - name: binance_futures_top_position_ratio_1h
         description: >
           Hourly long/short ratio of the top 20% traders by margin balance, by position: the
           shares of their position size long and short. Served ~30 days.
         config:
-          loaded_at_field: "to_timestamp_tz(payload:timestamp::number, 3)"
+          loaded_at_field: "epoch_ms((payload->>'timestamp')::bigint)::timestamptz"
 
       - name: binance_futures_global_account_ratio_1h
         description: >
           Hourly long/short ratio of all traders, by accounts. Served ~30 days.
         config:
-          loaded_at_field: "to_timestamp_tz(payload:timestamp::number, 3)"
+          loaded_at_field: "epoch_ms((payload->>'timestamp')::bigint)::timestamptz"

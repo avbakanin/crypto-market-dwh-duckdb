@@ -3,8 +3,9 @@ version: 2
 # Unit tests of the staging SQL on hand-made RAW rows, the dbt twin of the Python tests
 # with fakes: live data cannot show which version wins (no revisions so far) or how a
 # missed settlement is flagged on a contract that never missed one.
-# Inputs are SQL: parse_json() makes payload a real VARIANT (a string cast to VARIANT
-# stays a string, and payload[0] would be NULL).
+# Inputs are SQL: '...'::json makes payload JSON as the loader stores it, so payload->>0
+# reads the array element. Time literals carry the offset without a space: DuckDB reads
+# '... +0000' as a time zone named +0000 and rejects it.
 
 unit_tests:
   - name: klines_latest_batch_wins_not_latest_load
@@ -17,39 +18,39 @@ unit_tests:
         format: sql
         rows: |
           select 'BTCUSDT' as symbol,
-                 parse_json('[1735689600000,"100.0","110.0","90.0","100.5","5.0",1735693199999,"500.0",10,"2.0","200.0","0"]') as payload,
+                 '[1735689600000,"100.0","110.0","90.0","100.5","5.0",1735693199999,"500.0",10,"2.0","200.0","0"]'::json as payload,
                  '20261120T000000Z' as _batch_id, '20261120T000000Z/BTCUSDT.json.gz' as _source_file,
                  1 as _file_row_number, 'k1' as _file_content_key,
-                 '2026-11-22 00:00:00 +0000'::timestamp_tz as _loaded_at
+                 '2026-11-22 00:00:00+00:00'::timestamptz as _loaded_at
           union all
           select 'BTCUSDT',
-                 parse_json('[1735689600000,"100.0","110.0","90.0","101.0","5.0",1735693199999,"500.0",10,"2.0","200.0","0"]'),
+                 '[1735689600000,"100.0","110.0","90.0","101.0","5.0",1735693199999,"500.0",10,"2.0","200.0","0"]'::json,
                  '20261121T000000Z', '20261121T000000Z/BTCUSDT.json.gz',
-                 1, 'k2', '2026-11-21 00:00:00 +0000'::timestamp_tz
+                 1, 'k2', '2026-11-21 00:00:00+00:00'::timestamptz
           union all
           select 'BTCUSDT',
-                 parse_json('[1735693200000,"101.0","102.0","100.0","101.5","1.0",1735696799999,"101.5",3,"0.5","50.0","0"]'),
+                 '[1735693200000,"101.0","102.0","100.0","101.5","1.0",1735696799999,"101.5",3,"0.5","50.0","0"]'::json,
                  '20261121T000000Z', '20261121T000000Z/BTCUSDT.json.gz',
-                 2, 'k2', '2026-11-21 00:00:00 +0000'::timestamp_tz
+                 2, 'k2', '2026-11-21 00:00:00+00:00'::timestamptz
           union all
           select 'ETHUSDT',
-                 parse_json('[1735689600000,"3.0","3.0","3.0","3.0","1.0",1735693199999,"3.0",1,"0.5","1.5","0"]'),
+                 '[1735689600000,"3.0","3.0","3.0","3.0","1.0",1735693199999,"3.0",1,"0.5","1.5","0"]'::json,
                  '20261121T000000Z', '20261121T000000Z/ETHUSDT.json.gz',
-                 5, 'k3', '2026-11-21 00:00:00 +0000'::timestamp_tz
+                 5, 'k3', '2026-11-21 00:00:00+00:00'::timestamptz
           union all
           select 'ETHUSDT',
-                 parse_json('[1735689600000,"3.0","3.1","3.0","3.1","1.0",1735693199999,"3.1",1,"0.5","1.5","0"]'),
+                 '[1735689600000,"3.0","3.1","3.0","3.1","1.0",1735693199999,"3.1",1,"0.5","1.5","0"]'::json,
                  '20261121T000000Z', '20261121T000000Z/ETHUSDT.json.gz',
-                 6, 'k3', '2026-11-21 00:00:00 +0000'::timestamp_tz
+                 6, 'k3', '2026-11-21 00:00:00+00:00'::timestamptz
     expect:
       rows:
-        - {symbol: BTCUSDT, open_time_ms: 1735689600000, open_time: "2025-01-01 00:00:00 +0000",
+        - {symbol: BTCUSDT, open_time_ms: 1735689600000, open_time: "2025-01-01 00:00:00+00:00",
            close_time_ms: 1735693199999, close_price: 101.0, _version_count: 2,
            _is_revised: true, _batch_id: 20261121T000000Z}
-        - {symbol: BTCUSDT, open_time_ms: 1735693200000, open_time: "2025-01-01 01:00:00 +0000",
+        - {symbol: BTCUSDT, open_time_ms: 1735693200000, open_time: "2025-01-01 01:00:00+00:00",
            close_time_ms: 1735696799999, close_price: 101.5, _version_count: 1,
            _is_revised: false, _batch_id: 20261121T000000Z}
-        - {symbol: ETHUSDT, open_time_ms: 1735689600000, open_time: "2025-01-01 00:00:00 +0000",
+        - {symbol: ETHUSDT, open_time_ms: 1735689600000, open_time: "2025-01-01 00:00:00+00:00",
            close_time_ms: 1735693199999, close_price: 3.1, _version_count: 2,
            _is_revised: true, _batch_id: 20261121T000000Z}
 
@@ -64,41 +65,41 @@ unit_tests:
         format: sql
         rows: |
           select 'ENAUSDT' as symbol,
-                 parse_json('{"symbol":"ENAUSDT","fundingTime":1735689600007,"fundingRate":"0.00005000","markPrice":"","rateType":"Regular"}') as payload,
+                 '{"symbol":"ENAUSDT","fundingTime":1735689600007,"fundingRate":"0.00005000","markPrice":"","rateType":"Regular"}'::json as payload,
                  '20261120T000000Z' as _batch_id, '20261120T000000Z/ENAUSDT.json.gz' as _source_file,
                  1 as _file_row_number, 'f1' as _file_content_key,
-                 '2026-11-20 00:00:00 +0000'::timestamp_tz as _loaded_at
+                 '2026-11-20 00:00:00+00:00'::timestamptz as _loaded_at
           union all
           select 'ENAUSDT',
-                 parse_json('{"symbol":"ENAUSDT","fundingTime":1735704000003,"fundingRate":"0.00005000","markPrice":"0.50000000","rateType":"Regular"}'),
+                 '{"symbol":"ENAUSDT","fundingTime":1735704000003,"fundingRate":"0.00005000","markPrice":"0.50000000","rateType":"Regular"}'::json,
                  '20261120T000000Z', '20261120T000000Z/ENAUSDT.json.gz',
-                 2, 'f1', '2026-11-20 00:00:00 +0000'::timestamp_tz
+                 2, 'f1', '2026-11-20 00:00:00+00:00'::timestamptz
           union all
           select 'ENAUSDT',
-                 parse_json('{"symbol":"ENAUSDT","fundingTime":1735732800026,"fundingRate":"-0.00012000","markPrice":"0.52000000","rateType":"Regular"}'),
+                 '{"symbol":"ENAUSDT","fundingTime":1735732800026,"fundingRate":"-0.00012000","markPrice":"0.52000000","rateType":"Regular"}'::json,
                  '20261120T000000Z', '20261120T000000Z/ENAUSDT.json.gz',
-                 3, 'f1', '2026-11-20 00:00:00 +0000'::timestamp_tz
+                 3, 'f1', '2026-11-20 00:00:00+00:00'::timestamptz
           union all
           select 'ENAUSDT',
-                 parse_json('{"symbol":"ENAUSDT","fundingTime":1735732800026,"fundingRate":"-0.00012000","markPrice":"0.52000000","rateType":"Regular"}'),
+                 '{"symbol":"ENAUSDT","fundingTime":1735732800026,"fundingRate":"-0.00012000","markPrice":"0.52000000","rateType":"Regular"}'::json,
                  '20261121T000000Z', '20261121T000000Z/ENAUSDT.json.gz',
-                 1, 'f2', '2026-11-21 00:00:00 +0000'::timestamp_tz
+                 1, 'f2', '2026-11-21 00:00:00+00:00'::timestamptz
           union all
           select 'ENAUSDT',
-                 parse_json('{"symbol":"ENAUSDT","fundingTime":1735747200001,"fundingRate":"0.00005000","markPrice":"0.51000000","rateType":"Regular"}'),
+                 '{"symbol":"ENAUSDT","fundingTime":1735747200001,"fundingRate":"0.00005000","markPrice":"0.51000000","rateType":"Regular"}'::json,
                  '20261121T000000Z', '20261121T000000Z/ENAUSDT.json.gz',
-                 2, 'f2', '2026-11-21 00:00:00 +0000'::timestamp_tz
+                 2, 'f2', '2026-11-21 00:00:00+00:00'::timestamptz
           union all
           select '1000PEPEUSDT',
-                 parse_json('{"symbol":"1000PEPEUSDT","fundingTime":1735689600010,"fundingRate":"0.00010000","markPrice":"0.01700000","rateType":"Regular"}'),
+                 '{"symbol":"1000PEPEUSDT","fundingTime":1735689600010,"fundingRate":"0.00010000","markPrice":"0.01700000","rateType":"Regular"}'::json,
                  '20261121T000000Z', '20261121T000000Z/1000PEPEUSDT.json.gz',
-                 1, 'f3', '2026-11-21 00:00:00 +0000'::timestamp_tz
+                 1, 'f3', '2026-11-21 00:00:00+00:00'::timestamptz
       - input: ref('perpetuals')
         rows:
           - {spot_symbol: ENAUSDT, futures_symbol: ENAUSDT, contract_multiplier: 1,
-             interest_rate_8h: 0.0001, mapped_at_utc: "2026-11-21 00:00:00 +0000"}
+             interest_rate_8h: 0.0001, mapped_at_utc: "2026-11-21 00:00:00+00:00"}
           - {spot_symbol: PEPEUSDT, futures_symbol: 1000PEPEUSDT, contract_multiplier: 1000,
-             interest_rate_8h: 0.0001, mapped_at_utc: "2026-11-21 00:00:00 +0000"}
+             interest_rate_8h: 0.0001, mapped_at_utc: "2026-11-21 00:00:00+00:00"}
     expect:
       rows:
         - {contract_symbol: ENAUSDT, spot_symbol: ENAUSDT, funding_hour_ms: 1735689600000,
@@ -127,19 +128,19 @@ unit_tests:
         format: sql
         rows: |
           select '1000PEPEUSDT' as symbol,
-                 parse_json('{"symbol":"1000PEPEUSDT","sumOpenInterest":"10.00000000","sumOpenInterestValue":"0.17000000","CMCCirculatingSupply":"1.0","timestamp":1735689600000}') as payload,
+                 '{"symbol":"1000PEPEUSDT","sumOpenInterest":"10.00000000","sumOpenInterestValue":"0.17000000","CMCCirculatingSupply":"1.0","timestamp":1735689600000}'::json as payload,
                  '20261120T000000Z' as _batch_id, '20261120T000000Z/1000PEPEUSDT.json.gz' as _source_file,
                  1 as _file_row_number, 'o1' as _file_content_key,
-                 '2026-11-20 00:00:00 +0000'::timestamp_tz as _loaded_at
+                 '2026-11-20 00:00:00+00:00'::timestamptz as _loaded_at
           union all
           select '1000PEPEUSDT',
-                 parse_json('{"symbol":"1000PEPEUSDT","sumOpenInterest":"12.00000000","sumOpenInterestValue":"0.20400000","CMCCirculatingSupply":"1.0","timestamp":1735689600000}'),
+                 '{"symbol":"1000PEPEUSDT","sumOpenInterest":"12.00000000","sumOpenInterestValue":"0.20400000","CMCCirculatingSupply":"1.0","timestamp":1735689600000}'::json,
                  '20261121T000000Z', '20261121T000000Z/1000PEPEUSDT.json.gz',
-                 1, 'o2', '2026-11-21 00:00:00 +0000'::timestamp_tz
+                 1, 'o2', '2026-11-21 00:00:00+00:00'::timestamptz
       - input: ref('perpetuals')
         rows:
           - {spot_symbol: PEPEUSDT, futures_symbol: 1000PEPEUSDT, contract_multiplier: 1000,
-             interest_rate_8h: 0.0001, mapped_at_utc: "2026-11-21 00:00:00 +0000"}
+             interest_rate_8h: 0.0001, mapped_at_utc: "2026-11-21 00:00:00+00:00"}
     expect:
       rows:
         - {contract_symbol: 1000PEPEUSDT, spot_symbol: PEPEUSDT, snapshot_time_ms: 1735689600000,
@@ -157,42 +158,42 @@ unit_tests:
         format: sql
         rows: |
           select 'BTCUSDT' as symbol,
-                 parse_json('{"symbol":"BTCUSDT","longAccount":"0.7000","longShortRatio":"2.3333","shortAccount":"0.3000","timestamp":1735689600000}') as payload,
+                 '{"symbol":"BTCUSDT","longAccount":"0.7000","longShortRatio":"2.3333","shortAccount":"0.3000","timestamp":1735689600000}'::json as payload,
                  '20261121T000000Z' as _batch_id, '20261121T000000Z/BTCUSDT.json.gz' as _source_file,
                  1 as _file_row_number, 'a2' as _file_content_key,
-                 '2026-11-21 00:00:00 +0000'::timestamp_tz as _loaded_at
+                 '2026-11-21 00:00:00+00:00'::timestamptz as _loaded_at
           union all
           select 'BTCUSDT',
-                 parse_json('{"symbol":"BTCUSDT","longAccount":"0.6000","longShortRatio":"1.5000","shortAccount":"0.4000","timestamp":1735689600000}'),
+                 '{"symbol":"BTCUSDT","longAccount":"0.6000","longShortRatio":"1.5000","shortAccount":"0.4000","timestamp":1735689600000}'::json,
                  '20261120T000000Z', '20261120T000000Z/BTCUSDT.json.gz',
-                 1, 'a1', '2026-11-22 00:00:00 +0000'::timestamp_tz
+                 1, 'a1', '2026-11-22 00:00:00+00:00'::timestamptz
       - input: source('binance', 'binance_futures_top_position_ratio_1h')
         format: sql
         rows: |
           select '1000PEPEUSDT' as symbol,
-                 parse_json('{"symbol":"1000PEPEUSDT","longAccount":"0.5500","longShortRatio":"1.2222","shortAccount":"0.4500","timestamp":1735689600000}') as payload,
+                 '{"symbol":"1000PEPEUSDT","longAccount":"0.5500","longShortRatio":"1.2222","shortAccount":"0.4500","timestamp":1735689600000}'::json as payload,
                  '20261121T000000Z' as _batch_id, '20261121T000000Z/1000PEPEUSDT.json.gz' as _source_file,
                  1 as _file_row_number, 'p1' as _file_content_key,
-                 '2026-11-21 00:00:00 +0000'::timestamp_tz as _loaded_at
+                 '2026-11-21 00:00:00+00:00'::timestamptz as _loaded_at
       - input: source('binance', 'binance_futures_global_account_ratio_1h')
         format: sql
         rows: |
           select 'BTCUSDT' as symbol,
-                 parse_json('{"symbol":"BTCUSDT","longAccount":"0.8000","longShortRatio":"4.0000","shortAccount":"0.2000","timestamp":1735689600000}') as payload,
+                 '{"symbol":"BTCUSDT","longAccount":"0.8000","longShortRatio":"4.0000","shortAccount":"0.2000","timestamp":1735689600000}'::json as payload,
                  '20261120T000000Z' as _batch_id, '20261120T000000Z/BTCUSDT.json.gz' as _source_file,
                  1 as _file_row_number, 'g1' as _file_content_key,
-                 '2026-11-20 00:00:00 +0000'::timestamp_tz as _loaded_at
+                 '2026-11-20 00:00:00+00:00'::timestamptz as _loaded_at
           union all
           select 'BTCUSDT',
-                 parse_json('{"symbol":"BTCUSDT","longAccount":"0.8000","longShortRatio":"4.0000","shortAccount":"0.2000","timestamp":1735689600000}'),
+                 '{"symbol":"BTCUSDT","longAccount":"0.8000","longShortRatio":"4.0000","shortAccount":"0.2000","timestamp":1735689600000}'::json,
                  '20261121T000000Z', '20261121T000000Z/BTCUSDT.json.gz',
-                 1, 'g2', '2026-11-21 00:00:00 +0000'::timestamp_tz
+                 1, 'g2', '2026-11-21 00:00:00+00:00'::timestamptz
       - input: ref('perpetuals')
         rows:
           - {spot_symbol: BTCUSDT, futures_symbol: BTCUSDT, contract_multiplier: 1,
-             interest_rate_8h: 0.0001, mapped_at_utc: "2026-11-21 00:00:00 +0000"}
+             interest_rate_8h: 0.0001, mapped_at_utc: "2026-11-21 00:00:00+00:00"}
           - {spot_symbol: PEPEUSDT, futures_symbol: 1000PEPEUSDT, contract_multiplier: 1000,
-             interest_rate_8h: 0.0001, mapped_at_utc: "2026-11-21 00:00:00 +0000"}
+             interest_rate_8h: 0.0001, mapped_at_utc: "2026-11-21 00:00:00+00:00"}
     expect:
       rows:
         - {contract_symbol: BTCUSDT, spot_symbol: BTCUSDT, ratio_series: top_account,

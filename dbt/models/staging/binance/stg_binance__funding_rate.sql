@@ -13,11 +13,12 @@ typed as (
 
     select
         symbol as contract_symbol,
-        payload:fundingTime::number(38, 0) as funding_time_ms,
-        floor(payload:fundingTime::number(38, 0) / 3600000) * 3600000 as funding_hour_ms,
-        payload:fundingRate::number(38, 8) as funding_rate,
+        (payload->>'fundingTime')::bigint as funding_time_ms,
+        -- Integer division: / would give a DOUBLE in DuckDB.
+        (payload->>'fundingTime')::bigint // 3600000 * 3600000 as funding_hour_ms,
+        (payload->>'fundingRate')::decimal(38, 8) as funding_rate,
         -- Old records carry markPrice = "" (source note 32).
-        nullif(payload:markPrice::varchar, '')::number(38, 8) as mark_price,
+        nullif(payload->>'markPrice', '')::decimal(38, 8) as mark_price,
         payload,
         _batch_id,
         _file_row_number,
@@ -46,8 +47,8 @@ timed as (
 
     select
         *,
-        convert_timezone('UTC', to_timestamp_tz(funding_hour_ms, 3)) as funding_hour,
-        convert_timezone('UTC', to_timestamp_tz(funding_time_ms, 3)) as funding_time
+        epoch_ms(funding_hour_ms)::timestamptz as funding_hour,
+        epoch_ms(funding_time_ms)::timestamptz as funding_time
     from versioned
 
 ),
@@ -57,12 +58,12 @@ stepped as (
     select
         *,
         datediff(
-            hour,
+            'hour',
             lag(funding_hour) over (partition by contract_symbol order by funding_hour),
             funding_hour
         ) as hours_since_previous,
         datediff(
-            hour,
+            'hour',
             funding_hour,
             lead(funding_hour) over (partition by contract_symbol order by funding_hour)
         ) as hours_until_next
@@ -93,6 +94,7 @@ select
     intervals.funding_rate,
     intervals.mark_price,
     -- 1000PEPEUSDT is quoted per 1000 coins: per-coin price comparable with spot.
+    -- A DOUBLE in DuckDB (decimal / decimal), exact in Snowflake: compared with a tolerance.
     intervals.mark_price / perpetuals.contract_multiplier as mark_price_per_coin,
     intervals.interval_hours,
     intervals.hours_since_previous,

@@ -11,10 +11,10 @@ typed as (
 
     select
         symbol as contract_symbol,
-        payload:timestamp::number(38, 0) as snapshot_time_ms,
-        payload:sumOpenInterest::number(38, 8) as open_interest,
-        payload:sumOpenInterestValue::number(38, 8) as open_interest_usdt,
-        payload:CMCCirculatingSupply::number(38, 8) as cmc_circulating_supply,
+        (payload->>'timestamp')::bigint as snapshot_time_ms,
+        (payload->>'sumOpenInterest')::decimal(38, 8) as open_interest,
+        (payload->>'sumOpenInterestValue')::decimal(38, 8) as open_interest_usdt,
+        (payload->>'CMCCirculatingSupply')::decimal(38, 8) as cmc_circulating_supply,
         payload,
         _batch_id,
         _file_row_number,
@@ -42,7 +42,7 @@ versioned as (
 select
     versioned.contract_symbol,
     perpetuals.spot_symbol,
-    convert_timezone('UTC', to_timestamp_tz(versioned.snapshot_time_ms, 3)) as snapshot_time,
+    epoch_ms(versioned.snapshot_time_ms)::timestamptz as snapshot_time,
     -- In contract units (1000PEPE for 1000PEPEUSDT); coins = units * multiplier.
     versioned.open_interest,
     versioned.open_interest * perpetuals.contract_multiplier as open_interest_coins,

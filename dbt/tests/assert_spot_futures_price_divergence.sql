@@ -34,5 +34,5 @@ from settlements
 inner join candles
     on settlements.spot_symbol = candles.symbol
     -- The candle that closes at the settlement: [hour - 1 h, hour - 1 ms].
-    and candles.open_time = dateadd(hour, -1, settlements.funding_hour)
+    and candles.open_time = settlements.funding_hour - interval 1 hour
 where abs(settlements.mark_price_per_coin / candles.close_price - 1) > {{ max_divergence }}

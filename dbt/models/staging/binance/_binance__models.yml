@@ -4,7 +4,7 @@ models:
   - name: stg_binance__klines_1h
     description: >
       Spot 1h candles of the whitelisted symbols, one row per (symbol, open_time): prices
-      and volumes as NUMBER(38, 8), times in UTC, the version from the latest extract
+      and volumes as DECIMAL(38, 8), times in UTC, the version from the latest extract
       batch. A candle covers [open_time, close_time], close_time = open_time + 1 h - 1 ms.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
@@ -13,7 +13,7 @@ models:
       # The UTC timestamp must be the same instant as the source's Unix ms.
       - dbt_utils.expression_is_true:
           arguments:
-            expression: "date_part(epoch_millisecond, open_time) = open_time_ms"
+            expression: "epoch_ms(open_time) = open_time_ms"
       - dbt_utils.expression_is_true:
           arguments:
             expression: "close_time_ms = open_time_ms + 3599999"
@@ -87,7 +87,7 @@ models:
             combination_of_columns: [contract_symbol, funding_hour_ms]
       - dbt_utils.expression_is_true:
           arguments:
-            expression: "date_part(epoch_millisecond, funding_hour) = funding_hour_ms"
+            expression: "epoch_ms(funding_hour) = funding_hour_ms"
       # Source note 33: 0-26 ms after the hour. A settlement a second late would still key
       # correctly, but means the hour assumption needs a second look.
       - dbt_utils.expression_is_true:
@@ -168,7 +168,7 @@ models:
             combination_of_columns: [contract_symbol, snapshot_time_ms]
       - dbt_utils.expression_is_true:
           arguments:
-            expression: "date_part(epoch_millisecond, snapshot_time) = snapshot_time_ms"
+            expression: "epoch_ms(snapshot_time) = snapshot_time_ms"
       - dbt_utils.expression_is_true:
           arguments:
             expression: "mod(snapshot_time_ms, 3600000) = 0"
@@ -228,7 +228,7 @@ models:
             combination_of_columns: [contract_symbol, ratio_series, snapshot_time_ms]
       - dbt_utils.expression_is_true:
           arguments:
-            expression: "date_part(epoch_millisecond, snapshot_time) = snapshot_time_ms"
+            expression: "epoch_ms(snapshot_time) = snapshot_time_ms"
       - dbt_utils.expression_is_true:
           arguments:
             expression: "mod(snapshot_time_ms, 3600000) = 0"

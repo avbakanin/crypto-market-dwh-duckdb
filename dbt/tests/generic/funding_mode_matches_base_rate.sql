@@ -27,6 +27,8 @@ select
     modal_interval_hours,
     settlements
 from per_contract
-where modal_rate is distinct from interest_rate_8h * modal_interval_hours / 8
+-- Compared times 8, not divided: decimal * integer stays exact in every engine, while
+-- decimal / integer is a DOUBLE in DuckDB.
+where modal_rate * 8 is distinct from interest_rate_8h * modal_interval_hours
 
 {% endtest %}
