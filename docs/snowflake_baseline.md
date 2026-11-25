@@ -69,16 +69,25 @@ would not be meaningful.
    Replace `hash_agg`, write `count(distinct (a, b))` for multi-column distinct counts,
    and use `epoch_ms` for times.
 3. Compare per the `compare` column. Start with `exact`: a difference there points to one
-   relation and, through the per-symbol grain, often to one symbol.
-4. Row level: compare the marts with the pinned export, using `EXCEPT` both ways on the
-   event-side columns.
+   relation and, through the per-symbol grain, often to one symbol. When a metric differs,
+   recompute it exactly before deciding which side is wrong: the baseline can be the one
+   that is off (`sum_return_zscore`, source note 113). `python -m analysis.exact_reference`
+   writes `docs/baseline/exact_references.csv`; a metric counts as a *baseline error* only
+   when DuckDB is within tolerance of the exact value and the baseline is not.
+4. Row level: compare the marts with the pinned export. Rows are joined on each table's key
+   in both directions (rows only on one side are the `EXCEPT` of keys) and every column is
+   compared, numbers within 1e-9 relative: a plain `EXCEPT` of whole rows would fail on
+   every DOUBLE that Snowflake stored as a decimal. The columns of the control hours are
+   compared as distributions (medians, two-sample Kolmogorov-Smirnov by events).
 
 The commands: `DUCKDB_PATH=warehouse/baseline_20261125T090706Z.duckdb` for each of
-`python -m ingestion.load_raw --until 20261125T090706Z` and
+`python -m ingestion.load_raw --until 20261125T090706Z`,
 `python -m analysis.compare_baseline --layer raw [--layer ...] --report
-docs/duckdb_vs_snowflake.md`. The DuckDB side of each layer is
-`analysis/baseline_duckdb/<layer>.sql`; the result is
-[docs/duckdb_vs_snowflake.md](duckdb_vs_snowflake.md).
+docs/duckdb_vs_snowflake.md` and `python -m analysis.compare_export --export
+<original>/data/baseline/marts_20261125T091007Z --report docs/duckdb_vs_snowflake_export.md`.
+The DuckDB side of each layer is `analysis/baseline_duckdb/<layer>.sql`; the results are
+[docs/duckdb_vs_snowflake.md](duckdb_vs_snowflake.md) and
+[docs/duckdb_vs_snowflake_export.md](duckdb_vs_snowflake_export.md).
 
 The batches up to the cutoff must outlive the trial. They are immutable, so backing up
 `data/raw` once is enough.
