@@ -64,6 +64,45 @@ def test_each_class_is_compared_its_own_way() -> None:
     ]
 
 
+Z: cb.Key = ("intermediate", "r", "all", "sum_return_zscore")
+
+
+@pytest.mark.parametrize(
+    ("ours", "baseline", "reference", "status"),
+    [
+        # The baseline is off, DuckDB is at the exact value (the real case).
+        ("-403.465601", "-403.465608", "-403.465600880930617", "baseline error"),
+        # DuckDB is off too: not rescued by the reference.
+        ("-403.465620", "-403.465608", "-403.465600880930617", "differs"),
+        # The baseline is within tolerance of the truth, so the difference is ours.
+        ("1.0085", "1.000", "1.004", "differs"),
+        # Without a reference a difference stays a difference.
+        ("-403.465601", "-403.465608", None, "differs"),
+        # Equal to the baseline: the reference is not looked at.
+        ("-403.465606", "-403.465608", "0", "equal"),
+    ],
+)
+def test_a_baseline_error_needs_duckdb_at_the_exact_value_and_the_baseline_off(
+    ours: str, baseline: str, reference: str | None, status: str
+) -> None:
+    references = {} if reference is None else {Z: reference}
+    (outcome,) = cb.compare({Z: ("tolerance", baseline)}, {Z: ours}, references)
+    assert outcome.status == status
+
+
+def test_tolerance_against_a_reference_counts_the_baselines_digits() -> None:
+    # 5 units of the baseline's 6th decimal, not of the reference's 15th.
+    assert cb.within_tolerance("-403.465601", "-403.465600880930617", digits_of="-403.465608")
+    assert not cb.within_tolerance("-403.465601", "-403.465600880930617")
+
+
+def test_engine_dependent_values_side_by_side() -> None:
+    key = ("marts", "t", "all", "rows")
+    (outcome,) = cb.compare({key: ("engine_dependent", "559335")}, {key: "558698"})
+    assert outcome.status == "not compared"
+    assert cb.side_by_side(outcome) == "DuckDB 558698, Snowflake 559335 (-0.11 %)"
+
+
 def write_baseline(path: Path, rows: list[tuple[str, str, str, str, str, str]]) -> Path:
     with path.open("w", encoding="utf-8", newline="") as f:
         out = csv.writer(f, lineterminator="\n")
@@ -144,8 +183,8 @@ def test_main_passes_when_the_baseline_matches_and_reports(
     assert cb.main([*args, "--report", str(report)]) == 0
     assert "OK: every compared metric of raw equals the baseline" in capsys.readouterr().out
     text = report.read_text(encoding="utf-8")
-    assert "| raw | exact | 2 | 2 | 0 | 0 | 0 |" in text
-    assert "| raw | snowflake_only | 1 | 0 | 0 | 0 | 1 |" in text
+    assert "| raw | exact | 2 | 2 | 0 | 0 | 0 | 0 |" in text
+    assert "| raw | snowflake_only | 1 | 0 | 0 | 0 | 0 | 1 |" in text
     assert "None: every exact and tolerance metric" in text
 
 
@@ -160,6 +199,32 @@ def test_main_fails_on_a_difference_and_names_it(
     out = capsys.readouterr().out
     assert "DIFF raw.binance_spot_klines_1h.all.rows (exact): DuckDB 10, baseline 11" in out
     assert "DIFF raw.binance_spot_klines_1h.all.no_such_metric (exact): DuckDB None" in out
+
+
+def test_main_reports_a_baseline_error_and_passes(
+    warehouse: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline = write_baseline(
+        tmp_path / "b.csv",
+        [
+            klines_metric("sum_close", "1006.0", "tolerance"),
+            klines_metric("rows", "12", "engine_dependent"),
+        ],
+    )
+    references = tmp_path / "refs.csv"
+    with references.open("w", encoding="utf-8", newline="") as f:
+        out = csv.writer(f, lineterminator="\n")
+        out.writerow(["layer", "relation", "grain", "metric", "reference", "source"])
+        out.writerow(["raw", "binance_spot_klines_1h", "all", "sum_close", "1005.0001", "test"])
+    report = tmp_path / "r.md"
+    args = ["--layer", "raw", "--database", str(warehouse), "--baseline", str(baseline)]
+    assert cb.main([*args, "--references", str(references), "--report", str(report)]) == 0
+    out_text = capsys.readouterr().out
+    assert "BASELINE ERROR raw.binance_spot_klines_1h.all.sum_close: exact 1005.0001" in out_text
+    text = report.read_text(encoding="utf-8")
+    assert "| raw | tolerance | 1 | 0 | 1 | 0 | 0 | 0 |" in text
+    assert "## Baseline errors" in text
+    assert "`rows`: engine_dependent - DuckDB 10, Snowflake 12 (-16.67 %)" in text
 
 
 def test_main_refuses_a_layer_without_a_query(tmp_path: Path) -> None:

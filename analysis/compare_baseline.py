@@ -1,7 +1,7 @@
 """Compare the DuckDB warehouse with the Snowflake baseline, layer by layer.
 
     python -m analysis.compare_baseline --layer raw [--layer ...] [--database PATH]
-        [--baseline CSV] [--report MARKDOWN]
+        [--baseline CSV] [--references CSV] [--report MARKDOWN]
 
 The baseline (docs/baseline/snowflake_baseline_metrics.csv, docs/snowflake_baseline.md)
 gives every metric a comparison class; analysis/baseline_duckdb/<layer>.sql computes the
@@ -11,7 +11,13 @@ same metrics in DuckDB. The warehouse must be built from the baseline's input on
 - exact: equal (numbers as numbers: Snowflake prints 0.10000000, DuckDB 0.1);
 - tolerance: within 5 units of the baseline's last printed digit (division gives DOUBLE in
   DuckDB, exact DECIMAL in Snowflake);
-- engine_dependent, reference, snowflake_only: listed, not compared here.
+- engine_dependent, reference, snowflake_only: listed, not compared here (engine_dependent
+  with both values side by side).
+
+A metric that differs from the baseline is a baseline error when an exact reference
+(docs/baseline/exact_references.csv, python -m analysis.exact_reference) shows DuckDB within
+tolerance of the true value and the baseline outside it; tolerance is still counted in units
+of the baseline's last digit.
 
 Exit code 1 when an exact or tolerance metric differs or is missing.
 """
@@ -33,6 +39,7 @@ from ingestion.warehouse import connect
 
 SQL_DIR = Path(__file__).resolve().parent / "baseline_duckdb"
 BASELINE_CSV = PROJECT_ROOT / "docs" / "baseline" / "snowflake_baseline_metrics.csv"
+REFERENCES_CSV = PROJECT_ROOT / "docs" / "baseline" / "exact_references.csv"
 COMPARED = ("exact", "tolerance")
 TOLERANCE_UNITS = 5
 
@@ -45,7 +52,8 @@ class Outcome:
     compare: str
     baseline: str
     duckdb: str | None
-    status: str  # equal | differs | missing | not compared
+    status: str  # equal | baseline error | differs | missing | not compared
+    reference: str | None = None
 
 
 def number(text: str) -> Decimal | None:
@@ -60,12 +68,14 @@ def same_value(ours: str, theirs: str) -> bool:
     return a == b if a is not None and b is not None else ours == theirs
 
 
-def within_tolerance(ours: str, theirs: str) -> bool:
-    """|ours - theirs| <= 5 units of the last digit the baseline printed."""
+def within_tolerance(ours: str, theirs: str, digits_of: str | None = None) -> bool:
+    """|ours - theirs| <= 5 units of the last digit the baseline printed (`theirs`, or
+    `digits_of` when theirs is an exact reference with more digits)."""
     a, b = number(ours), number(theirs)
-    if a is None or b is None:
+    unit = number(digits_of if digits_of is not None else theirs)
+    if a is None or b is None or unit is None:
         return ours == theirs
-    exponent = b.as_tuple().exponent
+    exponent = unit.as_tuple().exponent
     if not isinstance(exponent, int):  # NaN or infinity
         return ours == theirs
     return abs(a - b) <= TOLERANCE_UNITS * Decimal(10) ** exponent
@@ -81,6 +91,17 @@ def read_baseline(path: Path, layers: Sequence[str]) -> dict[Key, tuple[str, str
         }
 
 
+def read_references(path: Path) -> dict[Key, str]:
+    """(layer, relation, grain, metric) -> exact reference; no file, no references."""
+    if not path.is_file():
+        return {}
+    with path.open(encoding="utf-8", newline="") as f:
+        return {
+            (r["layer"], r["relation"], r["grain"], r["metric"]): r["reference"]
+            for r in csv.DictReader(f)
+        }
+
+
 def duckdb_metrics(database: Path, layers: Sequence[str]) -> dict[Key, str]:
     metrics: dict[Key, str] = {}
     with connect(database, read_only=True) as con:
@@ -91,20 +112,41 @@ def duckdb_metrics(database: Path, layers: Sequence[str]) -> dict[Key, str]:
     return metrics
 
 
-def compare(baseline: dict[Key, tuple[str, str]], ours: dict[Key, str]) -> list[Outcome]:
+def compare(
+    baseline: dict[Key, tuple[str, str]],
+    ours: dict[Key, str],
+    references: dict[Key, str] | None = None,
+) -> list[Outcome]:
+    references = references or {}
     outcomes = []
     for key, (cls, expected) in sorted(baseline.items()):
         actual = ours.get(key)
+        reference = references.get(key)
         if cls not in COMPARED:
             status = "not compared"
         elif actual is None:
             status = "missing"
         elif (same_value if cls == "exact" else within_tolerance)(actual, expected):
             status = "equal"
+        elif (
+            reference is not None
+            and within_tolerance(actual, reference, digits_of=expected)
+            and not within_tolerance(expected, reference, digits_of=expected)
+        ):
+            status = "baseline error"
         else:
             status = "differs"
-        outcomes.append(Outcome(key, cls, expected, actual, status))
+        outcomes.append(Outcome(key, cls, expected, actual, status, reference))
     return outcomes
+
+
+def side_by_side(o: Outcome) -> str:
+    """engine_dependent: both values and the relative difference."""
+    a, b = number(o.duckdb or ""), number(o.baseline)
+    if a is None or b is None:
+        return f"DuckDB {o.duckdb}, Snowflake {o.baseline}"
+    delta = "" if b == 0 else f" ({(a - b) / abs(b) * 100:+.2f} %)"
+    return f"DuckDB {o.duckdb}, Snowflake {o.baseline}{delta}"
 
 
 def report(outcomes: list[Outcome], layers: Sequence[str], database: Path, baseline: Path) -> str:
@@ -125,16 +167,15 @@ def report(outcomes: list[Outcome], layers: Sequence[str], database: Path, basel
         "The warehouse holds the baseline's input only: `python -m ingestion.load_raw --until"
         " 20261125T090706Z`, into its own file (`DUCKDB_PATH`).",
         "",
-        "| layer | class | metrics | equal | differ | missing | not compared |",
-        "|---|---|---:|---:|---:|---:|---:|",
+        "| layer | class | metrics | equal | baseline error | differ | missing | not compared |",
+        "|---|---|---:|---:|---:|---:|---:|---:|",
     ]
     counts = Counter((o.key[0], o.compare, o.status) for o in outcomes)
+    statuses = ("equal", "baseline error", "differs", "missing", "not compared")
     for layer in layers:
         for cls in sorted({o.compare for o in outcomes if o.key[0] == layer}):
             total = sum(n for (lay, c, _), n in counts.items() if lay == layer and c == cls)
-            cells = [
-                counts[(layer, cls, s)] for s in ("equal", "differs", "missing", "not compared")
-            ]
+            cells = [counts[(layer, cls, s)] for s in statuses]
             lines.append(f"| {layer} | {cls} | {total} | " + " | ".join(map(str, cells)) + " |")
     problems = [o for o in outcomes if o.status in ("differs", "missing")]
     lines += ["", "## Differences", ""]
@@ -146,12 +187,29 @@ def report(outcomes: list[Outcome], layers: Sequence[str], database: Path, basel
             f"- `{layer}.{relation}` [{grain}] `{metric}` ({o.compare}): "
             f"DuckDB {o.duckdb}, Snowflake {o.baseline}"
         )
+    errors = [o for o in outcomes if o.status == "baseline error"]
+    if errors:
+        lines += [
+            "",
+            "## Baseline errors",
+            "",
+            "DuckDB is within tolerance of the exact value, the Snowflake baseline is not"
+            " (docs/baseline/exact_references.csv, `python -m analysis.exact_reference`).",
+            "",
+        ]
+        for o in errors:
+            layer, relation, grain, metric = o.key
+            lines.append(
+                f"- `{layer}.{relation}` [{grain}] `{metric}` ({o.compare}): exact {o.reference},"
+                f" DuckDB {o.duckdb}, Snowflake {o.baseline}"
+            )
     skipped = [o for o in outcomes if o.status == "not compared"]
     if skipped:
         lines += ["", "## Not compared here", ""]
         for o in skipped:
             layer, relation, grain, metric = o.key
-            lines.append(f"- `{layer}.{relation}` [{grain}] `{metric}`: {o.compare}")
+            values = f" - {side_by_side(o)}" if o.compare == "engine_dependent" else ""
+            lines.append(f"- `{layer}.{relation}` [{grain}] `{metric}`: {o.compare}{values}")
     return "\n".join(lines) + "\n"
 
 
@@ -160,6 +218,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--layer", action="append", required=True, help="e.g. raw; repeatable")
     parser.add_argument("--database", type=Path, help="default: DUCKDB_PATH")
     parser.add_argument("--baseline", type=Path, default=BASELINE_CSV)
+    parser.add_argument("--references", type=Path, default=REFERENCES_CSV)
     parser.add_argument("--report", type=Path, help="write the comparison as Markdown")
     args = parser.parse_args(argv)
     for layer in args.layer:
@@ -168,11 +227,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     database = args.database.resolve() if args.database else warehouse_path()
 
     outcomes = compare(
-        read_baseline(args.baseline, args.layer), duckdb_metrics(database, args.layer)
+        read_baseline(args.baseline, args.layer),
+        duckdb_metrics(database, args.layer),
+        read_references(args.references),
     )
     for o in outcomes:
         if o.status in ("differs", "missing"):
             print(f"DIFF {'.'.join(o.key)} ({o.compare}): DuckDB {o.duckdb}, baseline {o.baseline}")
+        elif o.status == "baseline error":
+            print(
+                f"BASELINE ERROR {'.'.join(o.key)}: exact {o.reference},"
+                f" DuckDB {o.duckdb}, baseline {o.baseline}"
+            )
     if args.report:
         args.report.write_bytes(report(outcomes, args.layer, database, args.baseline).encode())
     status = Counter((o.compare, o.status) for o in outcomes)

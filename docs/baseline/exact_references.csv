@@ -1,0 +1,2 @@
+layer,relation,grain,metric,reference,source
+intermediate,int_binance__hourly_returns,all,sum_return_zscore,-403.465600880930617,"python -m analysis.exact_reference (Decimal, 50 digits)"
