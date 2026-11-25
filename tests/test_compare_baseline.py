@@ -64,6 +64,21 @@ def test_each_class_is_compared_its_own_way() -> None:
     ]
 
 
+def test_reference_is_compared_exactly_but_never_fails() -> None:
+    baseline = {
+        ("dq", "c", "build generic warn warn", "checks"): ("reference", "2"),
+        ("dq", "c", "build generic warn pass", "checks"): ("reference", "10"),
+        ("dq", "c", "test singular error pass", "checks"): ("reference", "1"),
+    }
+    ours = {
+        ("dq", "c", "build generic warn warn", "checks"): "2",
+        ("dq", "c", "build generic warn pass", "checks"): "11",
+    }
+    outcomes = cb.compare(baseline, ours)
+    assert [o.status for o in outcomes] == ["differs", "equal", "missing"]
+    assert not any(cb.failed(o) for o in outcomes)
+
+
 Z: cb.Key = ("intermediate", "r", "all", "sum_return_zscore")
 
 
@@ -225,6 +240,25 @@ def test_main_reports_a_baseline_error_and_passes(
     assert "| raw | tolerance | 1 | 0 | 1 | 0 | 0 | 0 |" in text
     assert "## Baseline errors" in text
     assert "`rows`: engine_dependent - DuckDB 10, Snowflake 12 (-16.67 %)" in text
+
+
+def test_main_notes_a_reference_difference_and_passes(
+    warehouse: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline = write_baseline(
+        tmp_path / "b.csv",
+        [klines_metric("rows", "10"), klines_metric("sum_close", "1006", "reference")],
+    )
+    report = tmp_path / "r.md"
+    args = ["--layer", "raw", "--database", str(warehouse), "--baseline", str(baseline)]
+    assert cb.main([*args, "--report", str(report)]) == 0
+    out = capsys.readouterr().out
+    assert "NOTE raw.binance_spot_klines_1h.all.sum_close (reference): DuckDB 1005" in out
+    assert "DIFF" not in out
+    text = report.read_text(encoding="utf-8")
+    assert "| raw | reference | 1 | 0 | 0 | 1 | 0 | 0 |" in text
+    assert "## Reference differences (reported, not failed)" in text
+    assert "None: every exact and tolerance metric" in text
 
 
 def test_main_refuses_a_layer_without_a_query(tmp_path: Path) -> None:

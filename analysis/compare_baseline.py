@@ -11,8 +11,10 @@ same metrics in DuckDB. The warehouse must be built from the baseline's input on
 - exact: equal (numbers as numbers: Snowflake prints 0.10000000, DuckDB 0.1);
 - tolerance: within 5 units of the baseline's last printed digit (division gives DOUBLE in
   DuckDB, exact DECIMAL in Snowflake);
-- engine_dependent, reference, snowflake_only: listed, not compared here (engine_dependent
-  with both values side by side).
+- reference (check counts per type and status): compared like exact, but a difference is
+  reported, not failed: the copy's set of checks may legitimately differ;
+- engine_dependent, snowflake_only: listed, not compared here (engine_dependent with both
+  values side by side).
 
 A metric that differs from the baseline is a baseline error when an exact reference
 (docs/baseline/exact_references.csv, python -m analysis.exact_reference) shows DuckDB within
@@ -41,6 +43,7 @@ SQL_DIR = Path(__file__).resolve().parent / "baseline_duckdb"
 BASELINE_CSV = PROJECT_ROOT / "docs" / "baseline" / "snowflake_baseline_metrics.csv"
 REFERENCES_CSV = PROJECT_ROOT / "docs" / "baseline" / "exact_references.csv"
 COMPARED = ("exact", "tolerance")
+REPORTED = ("reference",)  # compared, but a difference does not fail the run
 TOLERANCE_UNITS = 5
 
 Key = tuple[str, str, str, str]  # layer, relation, grain, metric
@@ -122,11 +125,11 @@ def compare(
     for key, (cls, expected) in sorted(baseline.items()):
         actual = ours.get(key)
         reference = references.get(key)
-        if cls not in COMPARED:
+        if cls not in COMPARED and cls not in REPORTED:
             status = "not compared"
         elif actual is None:
             status = "missing"
-        elif (same_value if cls == "exact" else within_tolerance)(actual, expected):
+        elif (within_tolerance if cls == "tolerance" else same_value)(actual, expected):
             status = "equal"
         elif (
             reference is not None
@@ -138,6 +141,11 @@ def compare(
             status = "differs"
         outcomes.append(Outcome(key, cls, expected, actual, status, reference))
     return outcomes
+
+
+def failed(o: Outcome) -> bool:
+    """An exact or tolerance metric that differs or is missing; reference ones only report."""
+    return o.compare in COMPARED and o.status in ("differs", "missing")
 
 
 def side_by_side(o: Outcome) -> str:
@@ -177,7 +185,7 @@ def report(outcomes: list[Outcome], layers: Sequence[str], database: Path, basel
             total = sum(n for (lay, c, _), n in counts.items() if lay == layer and c == cls)
             cells = [counts[(layer, cls, s)] for s in statuses]
             lines.append(f"| {layer} | {cls} | {total} | " + " | ".join(map(str, cells)) + " |")
-    problems = [o for o in outcomes if o.status in ("differs", "missing")]
+    problems = [o for o in outcomes if failed(o)]
     lines += ["", "## Differences", ""]
     if not problems:
         lines.append("None: every exact and tolerance metric of these layers matches.")
@@ -187,6 +195,15 @@ def report(outcomes: list[Outcome], layers: Sequence[str], database: Path, basel
             f"- `{layer}.{relation}` [{grain}] `{metric}` ({o.compare}): "
             f"DuckDB {o.duckdb}, Snowflake {o.baseline}"
         )
+    noted = [o for o in outcomes if o.compare in REPORTED and o.status in ("differs", "missing")]
+    if noted:
+        lines += ["", "## Reference differences (reported, not failed)", ""]
+        for o in noted:
+            layer, relation, grain, metric = o.key
+            lines.append(
+                f"- `{layer}.{relation}` [{grain}] `{metric}`: DuckDB {o.duckdb},"
+                f" Snowflake {o.baseline}"
+            )
     errors = [o for o in outcomes if o.status == "baseline error"]
     if errors:
         lines += [
@@ -232,8 +249,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         read_references(args.references),
     )
     for o in outcomes:
-        if o.status in ("differs", "missing"):
+        if failed(o):
             print(f"DIFF {'.'.join(o.key)} ({o.compare}): DuckDB {o.duckdb}, baseline {o.baseline}")
+        elif o.status in ("differs", "missing"):
+            print(f"NOTE {'.'.join(o.key)} ({o.compare}): DuckDB {o.duckdb}, baseline {o.baseline}")
         elif o.status == "baseline error":
             print(
                 f"BASELINE ERROR {'.'.join(o.key)}: exact {o.reference},"
@@ -243,7 +262,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.report.write_bytes(report(outcomes, args.layer, database, args.baseline).encode())
     status = Counter((o.compare, o.status) for o in outcomes)
     print("  ".join(f"{c}/{s}: {n}" for (c, s), n in sorted(status.items())))
-    bad = sum(n for (_, s), n in status.items() if s in ("differs", "missing"))
+    bad = sum(failed(o) for o in outcomes)
     if bad:
         print(f"FAIL: {bad} metrics differ from the baseline")
         return 1
