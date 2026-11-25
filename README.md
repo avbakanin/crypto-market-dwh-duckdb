@@ -1,4 +1,12 @@
-# crypto-market-dwh
+# crypto-market-dwh-duckdb
+
+> **Port in progress.** This repository is the DuckDB port of
+> [crypto-market-dwh](https://github.com/avbakanin/crypto-market-dwh), the same pipeline
+> on Snowflake, whose 30-day trial ends in December 2026. The port keeps the landing zone,
+> the dbt models and the data quality layer, replaces Snowflake with one local DuckDB file
+> (dbt-duckdb), and is checked layer by layer against a baseline taken in Snowflake on the
+> same input ([docs/snowflake_baseline.md](docs/snowflake_baseline.md)). Until the port is
+> finished, the text below describes the Snowflake original.
 
 **What happens to volume, open interest and funding in the 24 hours around a sharp hourly
 rise of a coin?** An end-to-end pipeline answers it on a year of Binance data: Binance API →
