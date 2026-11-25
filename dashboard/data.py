@@ -5,9 +5,10 @@ the manifest _manifest.json written last. A directory without the manifest is an
 in progress and is never read. Everything here is a plain function over a Snapshot, a
 DuckDB connection or a DataFrame; the Streamlit page (app.py) only lays out the results.
 
-No Snowflake here: the dashboard reads files, so it keeps working after the trial and
-whatever engine builds the marts. Numbers arrive as DOUBLE: fine for display and charts,
-the stored facts stay decimal in the files.
+The dashboard reads files, never the warehouse: DuckDB lets one process hold its file
+while the pipeline writes it, and the files are the same whatever engine builds the
+marts. Numbers arrive as DOUBLE: fine for display and charts, the stored facts stay
+decimal in the files where the warehouse keeps them decimal.
 """
 
 from __future__ import annotations
@@ -598,10 +599,11 @@ def latest_build(con: duckdb.DuckDBPyConnection) -> dict[str, Any] | None:
 CHECK_LABEL = """
     CASE
         WHEN severity = 'warn' AND failures_relation IS NOT NULL
-            THEN split_part(failures_relation, '.', -1)
+            THEN trim(split_part(failures_relation, '.', -1), '"')
         ELSE check_name
     END
-"""  # warn tests store findings under a readable alias (dq_volume_anomaly)
+"""  # warn tests store findings under a readable alias (dq_volume_anomaly); DuckDB
+# quotes the parts of the relation ("crypto_dwh"."dq"."dq_volume_anomaly"), Snowflake did not
 
 
 def check_status(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:

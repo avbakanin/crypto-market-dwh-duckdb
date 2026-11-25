@@ -350,7 +350,7 @@ def _check(
         "severity": "error",
         "status": status,
         "failures": 0,
-        "failures_relation": f"CRYPTO_DWH.DQ.{name}",
+        "failures_relation": f'"crypto_dwh"."dq"."{name}"',
         "logged_at": utc(started),
         "is_latest": False,
     }
@@ -391,14 +391,14 @@ def make_mart_rows() -> dict[str, list[dict[str, Any]]]:
     volume = {
         "severity": "warn",
         "model_name": "int_binance__hourly_returns",
-        "failures_relation": "CRYPTO_DWH.DQ.dq_volume_anomaly",
+        "failures_relation": '"crypto_dwh"."dq"."dq_volume_anomaly"',
     }
     funding = {
         "severity": "warn",
         "model_name": "stg_binance__funding_rate",
-        "failures_relation": "CRYPTO_DWH.DQ.dq_funding_missing_settlements",
+        "failures_relation": '"crypto_dwh"."dq"."dq_funding_missing_settlements"',
     }
-    grid = {"severity": "warn", "failures_relation": "CRYPTO_DWH.DQ.dq_klines_missing_hours"}
+    grid = {"severity": "warn", "failures_relation": '"crypto_dwh"."dq"."dq_klines_missing_hours"'}
     b1 = ("b1", "2026-11-23 21:08", "build")
     b2 = ("b2", "2026-11-24 09:08", "build")
     window = [
