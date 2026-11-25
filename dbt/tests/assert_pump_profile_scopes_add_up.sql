@@ -6,8 +6,8 @@ with counts as (
     select
         offset_hours,
         metric,
-        sum(iff(event_scope = 'all', events, 0)) as all_events,
-        sum(iff(event_scope <> 'all', events, 0)) as scoped_events
+        sum(if(event_scope = 'all', events, 0)) as all_events,
+        sum(if(event_scope <> 'all', events, 0)) as scoped_events
     from {{ ref('mart_pump_profile') }}
     group by offset_hours, metric
 

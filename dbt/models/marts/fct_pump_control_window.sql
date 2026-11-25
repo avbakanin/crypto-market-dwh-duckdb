@@ -9,8 +9,9 @@
 --   year:   any candidate - for price, volume, taker share and funding (a year).
 --   recent: candidates with open interest and long/short ratios in every hour of the
 --           window (~30 days) - for those metrics, which a year-wide pick would rarely hit.
--- The pick orders by a hash of (event, hour), not random(): the same hours on every
--- rebuild, so the profile changes only when the data does.
+-- The pick orders by md5 of (event, hour), not random(): the same hours on every rebuild,
+-- so the profile changes only when the data does. md5, not hash(): hash() differs between
+-- engines and is not promised stable across DuckDB versions; md5 is the same everywhere.
 
 {%- set window = var('pump_window_hours') %}
 {%- set threshold = var('pump_min_return') %}
@@ -77,14 +78,16 @@ ranked as (
         candidates.open_time_ms as control_open_time_ms,
         row_number() over (
             partition by events.pump_event_id
-            order by hash(events.pump_event_id, candidates.open_time_ms), candidates.open_time_ms
+            order by
+                md5(events.pump_event_id || '-' || candidates.open_time_ms),
+                candidates.open_time_ms
         ) as year_rank,
-        iff(
+        if(
             candidates.has_futures_window,
             row_number() over (
                 partition by events.pump_event_id, candidates.has_futures_window
                 order by
-                    hash(events.pump_event_id, candidates.open_time_ms),
+                    md5(events.pump_event_id || '-' || candidates.open_time_ms),
                     candidates.open_time_ms
             ),
             null

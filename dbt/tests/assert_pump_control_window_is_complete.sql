@@ -9,9 +9,9 @@ with per_event as (
 
     select
         events.pump_event_id,
-        count(distinct iff(controls.is_year_control, controls.control_open_time_ms, null))
+        count(distinct if(controls.is_year_control, controls.control_open_time_ms, null))
             as year_controls,
-        count(distinct iff(controls.is_recent_control, controls.control_open_time_ms, null))
+        count(distinct if(controls.is_recent_control, controls.control_open_time_ms, null))
             as recent_controls,
         count(distinct controls.control_open_time_ms) as controls,
         count(controls.pump_event_id) as window_rows,

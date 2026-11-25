@@ -41,9 +41,9 @@ select
     market.is_funding_stale
 from {{ anchors }} as anchors
 cross join (
-    -- row_number, not seq4(): seq4() may have gaps.
-    select row_number() over (order by seq4()) - 1 - {{ window }} as offset_hours
-    from table(generator(rowcount => {{ 2 * window + 1 }}))
+    -- range() is dense: -window, ..., +window.
+    select range as offset_hours
+    from range(-{{ window }}, {{ window + 1 }})
 ) as offsets
 left join {{ ref('int_binance__hourly_market') }} as start_hour
     on

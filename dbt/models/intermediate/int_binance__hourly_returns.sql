@@ -48,14 +48,18 @@ returns as (
         quote_volume,
         taker_buy_quote_volume,
         trade_count,
-        iff(
+        -- Returns are compared with thresholds (5 % pump, 2 % flat price): kept as
+        -- decimal(38, 12), the scale Snowflake gave this division. In DuckDB the division is
+        -- a DOUBLE, and a return of exactly -2 % came out as -0.0199999999999996 (source
+        -- note 111); rounding to 12 places restores the exact decimal.
+        if(
             open_time_ms - previous_open_time_ms = 3600000,
-            close_price / previous_close_price - 1,
+            (close_price / previous_close_price - 1)::decimal(38, 12),
             null
         ) as return_1h,
-        iff(
+        if(
             open_time_ms - open_time_ms_4h_ago = 4 * 3600000,
-            close_price / close_price_4h_ago - 1,
+            (close_price / close_price_4h_ago - 1)::decimal(38, 12),
             null
         ) as return_4h,
         -- Volume has a heavy right tail: a z-score of raw volume flags ~1800 hours a year,
@@ -114,19 +118,19 @@ select
     return_1h,
     return_4h,
     -- z-scores are statistics for ranking and flags, not stored facts: float is fine.
-    iff(
+    if(
         return_baseline_hours >= {{ zscore_min }} and return_baseline_stddev > 0,
         (return_1h - return_baseline_mean) / return_baseline_stddev,
         null
     ) as return_zscore,
     return_baseline_hours,
     -- Volume baselines only over a full window: a 3-hour "week" is not a baseline.
-    iff(
+    if(
         volume_baseline_hours = {{ volume_window }},
         volume_baseline_mean,
         null
     ) as quote_volume_baseline,
-    iff(
+    if(
         volume_baseline_hours = {{ volume_window }} and log_volume_baseline_stddev > 0,
         (log_quote_volume - log_volume_baseline_mean) / log_volume_baseline_stddev,
         null

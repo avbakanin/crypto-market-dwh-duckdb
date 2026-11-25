@@ -41,11 +41,11 @@ long_short as (
     select
         spot_symbol,
         snapshot_time_ms,
-        max(iff(ratio_series = 'top_account', long_short_ratio, null))
+        max(if(ratio_series = 'top_account', long_short_ratio, null))
             as top_account_long_short_ratio,
-        max(iff(ratio_series = 'top_position', long_short_ratio, null))
+        max(if(ratio_series = 'top_position', long_short_ratio, null))
             as top_position_long_short_ratio,
-        max(iff(ratio_series = 'global_account', long_short_ratio, null))
+        max(if(ratio_series = 'global_account', long_short_ratio, null))
             as global_account_long_short_ratio
     from {{ ref('stg_binance__long_short_ratio_1h') }}
     group by spot_symbol, snapshot_time_ms
@@ -67,7 +67,7 @@ funding as (
 
 hours_with_snapshots as (
 
-    -- Joined before the ASOF join: the docs show no outer join chained after ASOF JOIN.
+    -- Exact-hour snapshots first, the as-of join after: two different joins kept apart.
     -- Open interest and the long/short ratios exist only for the last ~30 days (source
     -- notes 36, 81): NULL before.
     select
@@ -112,20 +112,24 @@ select
     funding.funding_hour as last_funding_hour,
     funding.funding_rate,
     funding.interval_hours as funding_interval_hours,
-    -- Per 8 h, comparable across 4-hour and 8-hour contracts (source note 39).
-    funding.funding_rate * 8 / funding.interval_hours as funding_rate_8h,
+    -- Per 8 h, comparable across 4-hour and 8-hour contracts (source note 39). The interval
+    -- divides 8 (tested: 1, 2, 4 or 8), so an integer factor keeps the rate an exact
+    -- decimal; rate * 8 / interval would be a DOUBLE in DuckDB (source note 109).
+    funding.funding_rate * (8 // funding.interval_hours) as funding_rate_8h,
     -- Departure from the calm rate of this contract (source note 41: 0 for BNBUSDT).
-    funding.funding_rate * 8 / funding.interval_hours - funding.interest_rate_8h
+    funding.funding_rate * (8 // funding.interval_hours) - funding.interest_rate_8h
         as funding_premium_8h,
-    ((hours.hour_end_ms - funding.funding_hour_ms) / 3600000)::number(10, 0)
-        as hours_since_funding,
+    -- Both ends are on the hour: integer division is exact.
+    (hours.hour_end_ms - funding.funding_hour_ms) // 3600000 as hours_since_funding,
     -- The next settlement was due by hour_end and is not there: missed by the platform
     -- (2026-06-24) or not published yet at the tail. NULL before the funding history.
-    (hours.hour_end_ms - funding.funding_hour_ms) / 3600000 >= funding.interval_hours
+    (hours.hour_end_ms - funding.funding_hour_ms) // 3600000 >= funding.interval_hours
         as is_funding_stale
 from hours_with_snapshots as hours
--- As-of join: the last settlement at or before the end of the hour. funding is unique per
--- (contract, hour) and contract <-> spot is one to one, so there are no ties to break.
-asof join funding
-    match_condition (hours.hour_end_ms >= funding.funding_hour_ms)
-    on hours.symbol = funding.spot_symbol
+-- As-of join: the last settlement at or before the end of the hour; hours before the
+-- funding history keep NULL (left). funding is unique per (contract, hour) and
+-- contract <-> spot is one to one, so there are no ties to break.
+asof left join funding
+    on
+        hours.symbol = funding.spot_symbol
+        and hours.hour_end_ms >= funding.funding_hour_ms

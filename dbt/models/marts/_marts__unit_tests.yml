@@ -8,6 +8,8 @@ version: 2
 #   09 return 0.0499 -> below the threshold
 #   12 return 0.20   -> event 3: last hour of history, no full after-window
 # ETHUSDT has only hour 06 (return 0.08): its own event, and breadth 2 at 06.
+# DuckDB divides decimals in DOUBLE (source note 109): expected ratios are exact in binary
+# (0.125, not 0.1).
 
 unit_tests:
   - name: pump_episodes_threshold_cooldown_and_windows
@@ -28,8 +30,8 @@ unit_tests:
           - {symbol: BTCUSDT, open_time_ms: 1735696800000, return_1h: 0, close_price: 90, quote_volume: 100, quote_volume_baseline: 100, funding_rate_8h: 0.0001}
           - {symbol: BTCUSDT, open_time_ms: 1735700400000, return_1h: 0.05, close_price: 100, quote_volume: 100, quote_volume_baseline: 100, funding_rate_8h: 0.0001, open_interest_coins: 900}
           - {symbol: BTCUSDT, open_time_ms: 1735704000000, return_1h: 0, close_price: 104, quote_volume: 100, quote_volume_baseline: 100, funding_rate_8h: 0.0001, open_interest_coins: 950}
-          - {symbol: BTCUSDT, open_time_ms: 1735707600000, return_1h: 0, close_price: 110, quote_volume: 200, quote_volume_baseline: 100, funding_rate_8h: 0.0003, open_interest_coins: 1000}
-          - {symbol: BTCUSDT, open_time_ms: 1735711200000, return_1h: 0.10, close_price: 120, quote_volume: 300, quote_volume_baseline: 100, funding_rate_8h: 0.0001, open_interest_coins: 1100}
+          - {symbol: BTCUSDT, open_time_ms: 1735707600000, return_1h: 0, close_price: 112.5, quote_volume: 200, quote_volume_baseline: 100, funding_rate_8h: 0.0003, open_interest_coins: 1000}
+          - {symbol: BTCUSDT, open_time_ms: 1735711200000, return_1h: 0.10, close_price: 120, quote_volume: 300, quote_volume_baseline: 100, funding_rate_8h: 0.0001, open_interest_coins: 1125}
           - {symbol: BTCUSDT, open_time_ms: 1735714800000, return_1h: 0, close_price: 125, quote_volume: 100, quote_volume_baseline: 100, funding_rate_8h: 0.0001, open_interest_coins: 1200}
           - {symbol: BTCUSDT, open_time_ms: 1735718400000, return_1h: 0.06, close_price: 150, quote_volume: 400, quote_volume_baseline: 100, funding_rate_8h: 0.0005, open_interest_coins: 1210}
           - {symbol: BTCUSDT, open_time_ms: 1735722000000, return_1h: 0.0499, close_price: 128, quote_volume: 100, quote_volume_baseline: 100, funding_rate_8h: 0.0001}
@@ -43,7 +45,7 @@ unit_tests:
            overlaps_previous_event: false, market_breadth: 1, event_scope: single_coin,
            has_full_before_window: true, has_full_after_window: true,
            has_full_open_interest_window: false,
-           return_before: 0.125, return_after: 0.1,
+           return_before: 0.125, return_after: 0.125,
            volume_ratio_event: 1, volume_ratio_before: 1, volume_ratio_after: 1.5,
            open_interest_change_event: null,
            funding_rate_8h_before: 0.0001, funding_rate_8h_max_after: 0.0003}
@@ -51,9 +53,9 @@ unit_tests:
            overlaps_previous_event: true, market_breadth: 2, event_scope: multi_coin,
            has_full_before_window: true, has_full_after_window: true,
            has_full_open_interest_window: true,
-           return_before: 0.1, return_after: 0.25,
+           return_before: 0.125, return_after: 0.25,
            volume_ratio_event: 3, volume_ratio_before: 1.5, volume_ratio_after: 2.5,
-           open_interest_change_event: 0.1,
+           open_interest_change_event: 0.125,
            funding_rate_8h_before: 0.0003, funding_rate_8h_max_after: 0.0005}
         - {symbol: BTCUSDT, event_open_time_ms: 1735732800000, episode_hours: 1,
            overlaps_previous_event: false, market_breadth: 1, event_scope: single_coin,
@@ -166,26 +168,27 @@ unit_tests:
   - name: event_excess_against_the_event_own_pool_and_offset
     description: >
       Offset 0. e1 volume 4 against its year controls 1, 2, 6 (median 2); the recent-only
-      control (100) and a control at offset 1 (50) must not count. e1 open interest 0.1
-      against its recent controls 0.2 and -0.3 (the year control's 0.5 is the wrong pool):
-      median -0.05, half above and half below zero. e1 funding premium -0.0001 against
-      -0.0002, 0, 0.0001, 0.0003: a control at exactly 0 is neither above nor below.
+      control (100) and a control at offset 1 (50) must not count. e1 open interest 0.125
+      against its recent controls 0.25 and -0.375 (the year control's 0.5 is the wrong
+      pool): median -0.0625, half above and half below zero. e1 funding premium -0.0001
+      against -0.0002, 0, 0, 0.0003: a control at exactly 0 is neither above nor below.
+      Values are exact in binary: value is a DOUBLE in DuckDB (source note 109).
       e2 has no open interest value, so its recent control makes no row; its taker share
       has no control value at all: the row stays, with NULL median and excess.
     model: fct_pump_event_excess
     given:
       - input: ref('fct_pump_event_window')
         rows:
-          - {pump_event_id: e1, offset_hours: 0, volume_ratio: 4, open_interest_change_since_start: 0.1, funding_premium_8h: -0.0001}
+          - {pump_event_id: e1, offset_hours: 0, volume_ratio: 4, open_interest_change_since_start: 0.125, funding_premium_8h: -0.0001}
           - {pump_event_id: e2, offset_hours: 0, volume_ratio: 6, taker_buy_share: 0.6}
       - input: ref('fct_pump_control_window')
         rows:
           - {pump_event_id: e1, offset_hours: 0, is_year_control: true, is_recent_control: false, volume_ratio: 1, open_interest_change_since_start: 0.5, funding_premium_8h: -0.0002}
           - {pump_event_id: e1, offset_hours: 0, is_year_control: true, is_recent_control: false, volume_ratio: 2, funding_premium_8h: 0}
-          - {pump_event_id: e1, offset_hours: 0, is_year_control: true, is_recent_control: false, volume_ratio: 6, funding_premium_8h: 0.0001}
+          - {pump_event_id: e1, offset_hours: 0, is_year_control: true, is_recent_control: false, volume_ratio: 6, funding_premium_8h: 0}
           - {pump_event_id: e1, offset_hours: 0, is_year_control: true, is_recent_control: false, funding_premium_8h: 0.0003}
-          - {pump_event_id: e1, offset_hours: 0, is_year_control: false, is_recent_control: true, volume_ratio: 100, open_interest_change_since_start: 0.2, funding_premium_8h: -0.5}
-          - {pump_event_id: e1, offset_hours: 0, is_year_control: false, is_recent_control: true, open_interest_change_since_start: -0.3}
+          - {pump_event_id: e1, offset_hours: 0, is_year_control: false, is_recent_control: true, volume_ratio: 100, open_interest_change_since_start: 0.25, funding_premium_8h: -0.5}
+          - {pump_event_id: e1, offset_hours: 0, is_year_control: false, is_recent_control: true, open_interest_change_since_start: -0.375}
           - {pump_event_id: e1, offset_hours: 1, is_year_control: true, is_recent_control: false, volume_ratio: 50}
           - {pump_event_id: e2, offset_hours: 0, is_year_control: true, is_recent_control: false, volume_ratio: 1}
           - {pump_event_id: e2, offset_hours: 0, is_year_control: true, is_recent_control: false, volume_ratio: 1}
@@ -193,8 +196,8 @@ unit_tests:
     expect:
       rows:
         - {pump_event_id: e1, offset_hours: 0, metric: volume_ratio, value: 4, control_hours: 3, control_median: 2, control_share_above_zero: 1, control_share_below_zero: 0, excess: 2}
-        - {pump_event_id: e1, offset_hours: 0, metric: open_interest_change_since_start, value: 0.1, control_hours: 2, control_median: -0.05, control_share_above_zero: 0.5, control_share_below_zero: 0.5, excess: 0.15}
-        - {pump_event_id: e1, offset_hours: 0, metric: funding_premium_8h, value: -0.0001, control_hours: 4, control_median: 0.00005, control_share_above_zero: 0.5, control_share_below_zero: 0.25, excess: -0.00015}
+        - {pump_event_id: e1, offset_hours: 0, metric: open_interest_change_since_start, value: 0.125, control_hours: 2, control_median: -0.0625, control_share_above_zero: 0.5, control_share_below_zero: 0.5, excess: 0.1875}
+        - {pump_event_id: e1, offset_hours: 0, metric: funding_premium_8h, value: -0.0001, control_hours: 4, control_median: 0, control_share_above_zero: 0.25, control_share_below_zero: 0.25, excess: -0.0001}
         - {pump_event_id: e2, offset_hours: 0, metric: volume_ratio, value: 6, control_hours: 2, control_median: 1, control_share_above_zero: 1, control_share_below_zero: 0, excess: 5}
         - {pump_event_id: e2, offset_hours: 0, metric: taker_buy_share, value: 0.6, control_hours: 0, control_median: null, control_share_above_zero: null, control_share_below_zero: null, excess: null}
 

@@ -21,7 +21,8 @@ around as (
         *,
         -- How many symbols rose past the threshold in the same hour: a market-wide move
         -- (2026-11-15 02:00: nine symbols at once) is not a pump of one coin.
-        count_if(return_1h >= {{ threshold }}) over (partition by open_time_ms)
+        -- bigint: count_if over a window is a HUGEINT in DuckDB.
+        (count_if(return_1h >= {{ threshold }}) over (partition by open_time_ms))::bigint
             as market_breadth,
         lag(open_time_ms, {{ window + 1 }}) over (partition by symbol order by open_time_ms)
             as window_start_ms,
@@ -89,7 +90,7 @@ numbered as (
         symbol,
         open_time_ms,
         sum(
-            iff(
+            if(
                 previous_qualifying_ms is null
                 or open_time_ms - previous_qualifying_ms > {{ window }} * 3600000,
                 1,
@@ -156,7 +157,8 @@ select
     open_time as event_hour,
     event_open_time_ms,
     episode_hours,
-    convert_timezone('UTC', to_timestamp_tz(episode_last_hour_ms, 3)) as episode_last_hour,
+    -- epoch_ms(ms) is the UTC wall clock; as timestamptz in the UTC session it is that moment.
+    epoch_ms(episode_last_hour_ms)::timestamptz as episode_last_hour,
     -- The previous event's window reaches into this one's.
     coalesce(
         event_open_time_ms - previous_event_open_time_ms <= {{ 2 * window }} * 3600000,
@@ -167,7 +169,7 @@ select
     return_zscore,
     market_breadth,
     -- The scope rule lives here once: the profile and the dashboard read the column.
-    iff(market_breadth = 1, 'single_coin', 'multi_coin') as event_scope,
+    if(market_breadth = 1, 'single_coin', 'multi_coin') as event_scope,
     log_volume_zscore,
     has_full_before_window,
     has_full_after_window,
@@ -182,35 +184,35 @@ select
     quote_volume_baseline,
     open_interest_coins_before,
     -- Price
-    iff(has_full_before_window, close_price_before / close_price_window_start - 1, null)
+    if(has_full_before_window, close_price_before / close_price_window_start - 1, null)
         as return_before,
-    iff(has_full_after_window, close_price_window_end / close_price - 1, null)
+    if(has_full_after_window, close_price_window_end / close_price - 1, null)
         as return_after,
     -- Volume, relative to the 7 days before the event
     quote_volume / quote_volume_baseline as volume_ratio_event,
-    iff(has_full_before_window, quote_volume_avg_before / quote_volume_baseline, null)
+    if(has_full_before_window, quote_volume_avg_before / quote_volume_baseline, null)
         as volume_ratio_before,
-    iff(has_full_after_window, quote_volume_avg_after / quote_volume_baseline, null)
+    if(has_full_after_window, quote_volume_avg_after / quote_volume_baseline, null)
         as volume_ratio_after,
     -- Open interest, in coins: positions, not their price
-    iff(
+    if(
         has_full_before_window,
         open_interest_coins_before / nullif(open_interest_coins_window_start, 0) - 1,
         null
     ) as open_interest_change_before,
     open_interest_coins / nullif(open_interest_coins_before, 0) - 1
         as open_interest_change_event,
-    iff(
+    if(
         has_full_after_window,
         open_interest_coins_window_end / nullif(open_interest_coins, 0) - 1,
         null
     ) as open_interest_change_after,
     -- Funding per 8 h; hourly as-of values, so an average is time-weighted
     funding_rate_8h_before,
-    iff(has_full_before_window, funding_rate_8h_avg_before, null)
+    if(has_full_before_window, funding_rate_8h_avg_before, null)
         as funding_rate_8h_avg_before,
-    iff(has_full_after_window, funding_rate_8h_avg_after, null)
+    if(has_full_after_window, funding_rate_8h_avg_after, null)
         as funding_rate_8h_avg_after,
-    iff(has_full_after_window, funding_rate_8h_max_after, null)
+    if(has_full_after_window, funding_rate_8h_max_after, null)
         as funding_rate_8h_max_after
 from flagged

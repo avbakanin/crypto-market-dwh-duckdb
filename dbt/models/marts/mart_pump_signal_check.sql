@@ -34,8 +34,8 @@ with hours as (
 scored as (
 
     select
-        -- epoch ms -> UTC wall clock: the UTC day, whatever the session's time zone
-        to_date(to_timestamp_ntz(open_time_ms, 3)) as signal_date,
+        -- epoch_ms(ms) is the UTC wall clock: the UTC day, whatever the session's time zone
+        epoch_ms(open_time_ms)::date as signal_date,
         return_1h,
         volume_ratio,
         next_return_1h >= {{ threshold }} as is_followed_by_pump

@@ -35,18 +35,19 @@ series_bounds as (
 bounds as (
 
     select
-        ceil(max(first_ms) / 86400000) * 86400000 as first_day_ms,
+        -- Integer arithmetic: / would be a DOUBLE in DuckDB (source note 109).
+        (max(first_ms) + 86400000 - 1) // 86400000 * 86400000 as first_day_ms,
         -- A day is complete once its last point (day + 23 h) is in.
-        floor((max(last_ms) + 3600000) / 86400000) * 86400000 as end_day_ms
+        (max(last_ms) + 3600000) // 86400000 * 86400000 as end_day_ms
     from series_bounds
 
 ),
 
 calendar as (
 
-    select bounds.first_day_ms + (row_number() over (order by seq4()) - 1) * 86400000
-        as day_ms
-    from table(generator(rowcount => {{ max_days }}))
+    -- range() is dense: 0, 1, ..., max_days - 1.
+    select bounds.first_day_ms + calendar_days.range * 86400000 as day_ms
+    from range({{ max_days }}) as calendar_days
     cross join bounds
 
 ),
@@ -62,7 +63,7 @@ days as (
 
 counted as (
 
-    select floor(point_ms / 86400000) * 86400000 as day_ms, count(*) as row_count
+    select point_ms // 86400000 * 86400000 as day_ms, count(*) as row_count
     from points
     group by 1
 
@@ -76,7 +77,8 @@ expected as (
 )
 
 select
-    to_date(to_timestamp_ntz(days.day_ms, 3)) as day_utc,
+    -- epoch_ms(ms) is a timestamp without a zone: the UTC wall clock.
+    epoch_ms(days.day_ms)::date as day_utc,
     coalesce(counted.row_count, 0) as row_count,
     expected.rows_per_day
 from days
@@ -88,10 +90,10 @@ where coalesce(counted.row_count, 0) <> expected.rows_per_day
 union all
 
 select
-    to_date(to_timestamp_ntz(first_day_ms, 3)),
+    epoch_ms(first_day_ms)::date,
     null,
     null
 from bounds
-where (end_day_ms - first_day_ms) / 86400000 > {{ max_days }}
+where (end_day_ms - first_day_ms) // 86400000 > {{ max_days }}
 
 {% endtest %}
