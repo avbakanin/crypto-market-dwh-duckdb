@@ -1,6 +1,7 @@
 """Load extracted batches into the RAW tables of the DuckDB warehouse.
 
-Run from repo root: python -m ingestion.load_raw [--dataset NAME] [--until BATCH_ID]
+Run from repo root:
+    python -m ingestion.load_raw [--dataset NAME] [--until BATCH_ID] [--nothing-new-exit-code N]
 Default: every dataset (klines, funding_rate, open_interest, the three long/short ratio
 series) in one connection; per dataset, every complete batch of the landing zone that is
 not in RAW yet, oldest first (the load watermark is the set of _batch_id values in its
@@ -10,7 +11,9 @@ RAW is a journal of the source: each record as it came (payload JSON) plus its l
 Each batch loads in one transaction: insert, then reconcile with the manifest (rows and
 duplicate keys per symbol); a batch that does not reconcile is rolled back and its later
 batches wait for a human, the other datasets still load. A batch already in the table is
-not inserted again. Exit code 1 if a batch does not reconcile or nothing was extracted.
+not inserted again. Exit code 1 if a batch does not reconcile or nothing was extracted at
+all; N (default 0) when every batch was already loaded - the DAG passes 99, a skipped
+task, so nothing downstream is rebuilt for no new data.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ import duckdb
 
 from ingestion.batches import Manifest, complete_batches, is_batch_id, read_manifest
 from ingestion.datasets import DATASETS, RawDataset
+from ingestion.extract_cli import add_nothing_new_option, check_nothing_new_option
 from ingestion.settings import warehouse_path
 from ingestion.warehouse import connect
 
@@ -228,7 +232,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Load extracted batches into DuckDB RAW.")
     parser.add_argument("--dataset", choices=sorted(by_name), help="default: every dataset")
     parser.add_argument("--until", help="newest batch id to load (default: all)")
+    add_nothing_new_option(parser, "no batch is loaded")
     args = parser.parse_args(argv)
+    check_nothing_new_option(parser, args)
     if args.until is not None and not is_batch_id(args.until):
         parser.error(f"--until must look like 20261125T090706Z, got {args.until!r}")
 
@@ -244,12 +250,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     outcomes: list[str] = []
     problems: list[str] = []
+    loaded_any = False
     print(f"Warehouse: {warehouse_path()}")
     with connect() as con:
         ensure_raw_objects(con)
         for dataset in with_batches:
             print(f"\n== {dataset.name} ==")
             loaded, failed = load_pending(con, dataset, args.until)
+            loaded_any = loaded_any or bool(loaded)
             if failed:
                 problems += [f"{dataset.name}: {p}" for p in failed]
             else:
@@ -262,7 +270,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  {problem}")
         return 1
     print(f"\nOK: {'; '.join(outcomes)}")
-    return 0
+    return 0 if loaded_any else args.nothing_new_exit_code
 
 
 if __name__ == "__main__":

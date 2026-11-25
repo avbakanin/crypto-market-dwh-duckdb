@@ -389,6 +389,46 @@ def test_main_a_batch_that_does_not_reconcile_fails_but_other_datasets_load(
         assert count(wh, KLINES.table) == 0
 
 
+SKIP = 99  # what the Airflow DAG asks for; BashOperator reports it as skipped
+
+
+def test_main_with_nothing_to_load_ends_with_the_code_asked_for(
+    landing: dict[str, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_batch(landing["klines"], B1, klines(0))
+    assert load_raw.main(["--nothing-new-exit-code", str(SKIP)]) == 0  # a batch was loaded
+    assert load_raw.main(["--nothing-new-exit-code", str(SKIP)]) == SKIP
+    assert "OK: klines nothing to load" in capsys.readouterr().out
+
+
+def test_main_one_new_batch_in_any_dataset_is_a_success(landing: dict[str, Path]) -> None:
+    write_batch(landing["klines"], B1, klines(0))
+    write_batch(landing["funding_rate"], B1, funding(0))
+    assert load_raw.main([]) == 0
+    # New klines only: the datasets after it (funding first) have nothing new this time.
+    write_batch(landing["klines"], B2, klines(3))
+    assert load_raw.main(["--nothing-new-exit-code", str(SKIP)]) == 0
+
+
+def test_main_a_batch_that_does_not_reconcile_is_a_failure_not_nothing_new(
+    landing: dict[str, Path],
+) -> None:
+    bad = klines(0)
+    bad["BTCUSDT"].append(bad["BTCUSDT"][0])
+    write_batch(landing["klines"], B1, bad)
+    assert load_raw.main(["--nothing-new-exit-code", str(SKIP)]) == 1
+
+
+def test_main_refuses_an_exit_code_outside_a_byte_before_opening_the_warehouse(
+    landing: dict[str, Path], tmp_path: Path
+) -> None:
+    write_batch(landing["klines"], B1, klines(0))
+    with pytest.raises(SystemExit) as exc:
+        load_raw.main(["--nothing-new-exit-code", "256"])
+    assert exc.value.code == 2
+    assert not (tmp_path / "warehouse.duckdb").exists()
+
+
 def test_main_refuses_an_until_that_is_not_a_batch_id(landing: dict[str, Path]) -> None:
     with pytest.raises(SystemExit) as exc:
         load_raw.main(["--until", "2026-11-25"])
