@@ -3,9 +3,9 @@
     data/raw/klines_1h/<batch_id>/<SYMBOL>.json   klines exactly as received
     data/raw/klines_1h/<batch_id>/_manifest.json  written last: marks the batch complete
 
-A batch is written once and never changed. Snowflake's COPY INTO skips files it has
-already loaded only while they stay unchanged, so overwriting <SYMBOL>.json in place
-would make the next load re-insert every overlapping candle.
+A batch is written once and never changed. The loader skips a batch whose id is already
+in RAW, so a file changed in place after its load would never reach the warehouse, and the
+manifest would no longer describe what RAW holds.
 """
 
 from __future__ import annotations

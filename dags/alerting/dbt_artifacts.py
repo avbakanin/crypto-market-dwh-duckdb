@@ -1,10 +1,11 @@
-"""What a dbt call reports in its own artifacts: no connection, key or warehouse needed.
+"""What a dbt call reports in its own artifacts: no connection to the warehouse needed.
 
 dbt writes run_results.json (build, test) or sources.json (source freshness) into
 dbt/target of the scheduler container, where the tasks run. Every test result carries its
 status, its number of failures and the relation that keeps the failing rows
 (store_failures), so an alert can name the checks and where their rows are even when
-Snowflake is unreachable or the DQ log hook itself failed.
+the warehouse file cannot be opened (another writer holds its lock) or the DQ log hook
+itself failed.
 """
 
 from __future__ import annotations
