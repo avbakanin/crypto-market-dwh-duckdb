@@ -21,6 +21,9 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 TELEGRAM_API = "https://api.telegram.org"
+# The DuckDB port shares the bot with the Snowflake original, and both DAGs are called
+# crypto_pipeline: every message says which pipeline sent it.
+MESSAGE_PREFIX = "[duckdb] "
 # Telegram's limit is 4096 characters; leave room for how it counts some emoji.
 MAX_TEXT = 4000
 TIMEOUT_S = 10.0
@@ -50,11 +53,13 @@ def send_telegram(
     env: Mapping[str, str] = os.environ,
     urlopen: Opener = urllib.request.urlopen,
 ) -> None:
-    """Send plain text (no parse mode: underscores in test names would break Markdown)."""
+    """Send plain text after MESSAGE_PREFIX (no parse mode: underscores in test names would
+    break Markdown)."""
     token = _required(env, "TELEGRAM_BOT_TOKEN")
     chat_id = _required(env, "TELEGRAM_CHAT_ID")
     api = env.get("TELEGRAM_API_URL") or TELEGRAM_API
-    body = {"chat_id": chat_id, "text": truncate(text), "disable_web_page_preview": True}
+    message = truncate(MESSAGE_PREFIX + text)
+    body = {"chat_id": chat_id, "text": message, "disable_web_page_preview": True}
     request = urllib.request.Request(
         f"{api}/bot{token}/sendMessage",
         data=json.dumps(body).encode(),
@@ -99,7 +104,7 @@ def ping(
 
 def main(argv: list[str] | None = None) -> int:
     words = argv if argv is not None else sys.argv[1:]
-    text = " ".join(words) or "Test alert from crypto-market-dwh"
+    text = " ".join(words) or "Test alert from crypto-market-dwh-duckdb"
     try:
         send_telegram(text)
     except AlertDeliveryError as error:

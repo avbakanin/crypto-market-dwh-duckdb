@@ -175,7 +175,8 @@ def test_telegram_message_is_plain_text_to_the_configured_chat() -> None:
     (request,) = opener.requests
     assert request.full_url == f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     body = json.loads(request.data)
-    assert body == {"chat_id": "42", "text": "hello_world", "disable_web_page_preview": True}
+    text = "[duckdb] hello_world"  # the original's bot is shared: say which pipeline it is
+    assert body == {"chat_id": "42", "text": text, "disable_web_page_preview": True}
 
 
 def test_api_url_can_point_elsewhere_and_long_text_is_cut() -> None:
@@ -185,6 +186,7 @@ def test_api_url_can_point_elsewhere_and_long_text_is_cut() -> None:
     assert request.full_url.startswith("http://fake:8000/bot")
     text = json.loads(request.data)["text"]
     assert len(text) == channels.MAX_TEXT and text.endswith("…")
+    assert text.startswith("[duckdb] x")  # cut at the end: the prefix survives
 
 
 @pytest.mark.parametrize("missing", ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"])
