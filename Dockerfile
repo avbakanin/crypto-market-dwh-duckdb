@@ -1,14 +1,18 @@
 # syntax=docker/dockerfile:1
 #
 # The official Airflow image plus this project. Airflow keeps its own tested
-# environment (its constraints are not ours); the
-# project runs from a separate venv built from the same pinned requirements
-# as the local .venv, so ingestion and dbt behave exactly as on the host.
+# environment (its constraints are not ours); the project runs from a separate
+# venv built from the same pinned requirements as the local .venv (DuckDB and
+# dbt-duckdb, no database driver, no keys), so ingestion and dbt behave exactly
+# as on the host.
 #
-#   docker build --target runtime -t crypto-market-dwh:dev .
-#   docker build --target test -t crypto-market-dwh:test . && docker run --rm crypto-market-dwh:test
-#   docker run --rm --entrypoint python crypto-market-dwh:test -m pytest -q tests_airflow
-#   docker build --target dashboard -t crypto-market-dwh-dashboard:dev .
+# Tags crypto-market-dwh-duckdb:*: the Snowflake original builds crypto-market-dwh:*
+# on the same machine.
+#
+#   docker build --target runtime -t crypto-market-dwh-duckdb:dev .
+#   docker build --target test -t crypto-market-dwh-duckdb:test . && docker run --rm crypto-market-dwh-duckdb:test
+#   docker run --rm --entrypoint python crypto-market-dwh-duckdb:test -m pytest -q tests_airflow
+#   docker build --target dashboard -t crypto-market-dwh-duckdb-dashboard:dev .
 
 ARG AIRFLOW_IMAGE=apache/airflow:3.4.0-python3.12
 

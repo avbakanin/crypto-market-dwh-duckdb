@@ -1,58 +1,57 @@
-# Local stack of crypto-market-dwh: Airflow (LocalExecutor) and the project's
-# own commands, both from the image built by the Dockerfile.
+# Local stack of crypto-market-dwh-duckdb: Airflow (LocalExecutor) and the project's own
+# commands, both from the image built by the Dockerfile. The warehouse is one DuckDB file
+# on the host (./warehouse): no account, no keys, no secrets of a database.
 #
-#   docker compose build project
-#   docker compose up -d                  # Airflow UI on http://localhost:8080
-#   docker compose run --rm project python -m ingestion.check_snowflake
+#   docker compose --profile tools build project
+#   docker compose up -d                                   # Airflow UI on http://localhost:8090
+#   docker compose run --rm project python -m ingestion.check_environment
 #   docker compose run --rm project dbt build
-#   docker compose build dashboard          # dashboard on http://localhost:8502
+#   docker compose --profile dashboard up -d dashboard     # dashboard on http://localhost:8502
 #
-# Compose reads the repo's .env only to fill in ${...} below; a container gets
-# nothing from it unless the variable is listed under `environment:`. Host
-# paths in .env (keys, dbt) are replaced by container paths here, and the key
-# files arrive as read-only secrets under /run/secrets.
+# Compose reads the repo's .env only to fill in ${...} below; a container gets nothing from
+# it unless the variable is listed under `environment:`. Host paths in .env are replaced by
+# container paths here.
 #
-# Only the scheduler runs tasks (LocalExecutor), so only the scheduler and the
-# `project` service get the Snowflake variables and keys; the API server, the
-# DAG processor and postgres never see them.
+# The landing zone: LANDING_ZONE_DIR on the host (empty: ./data/raw) is mounted at
+# /opt/project/data/raw, read-only unless LANDING_ZONE_ACCESS=rw. While the Snowflake
+# original owns it (PIPELINE_MODE=follow) it is the original's data/raw and stays read-only:
+# this stack cannot write a byte there. LANDING_ZONE_ACCESS=rw goes with PIPELINE_MODE=own
+# only (check_environment refuses own without write access).
 #
-# The dashboard has an image of its own (no Airflow, no Snowflake connector) and
-# sees only data/marts, read-only: it reads the exports, never Snowflake.
+# Only the scheduler runs tasks (LocalExecutor), so only the scheduler and the `project`
+# service see the landing zone, the warehouse and data/marts; the API server, the DAG
+# processor and postgres never do. One writer of the DuckDB file at a time: the DAG runs one
+# task after another (max_active_runs=1), and a command started during a run fails on the
+# file's lock instead of corrupting it.
 #
-# Alerts (dags/alerting) are sent from the scheduler (task callbacks) and the
-# DAG processor (run callbacks, callbacks of tasks ended from outside), so
-# those two get the Telegram bot and the watchdog URL.
+# Alerts (dags/alerting) are sent from the scheduler (task callbacks) and the DAG processor
+# (run callbacks, callbacks of tasks ended from outside), so those two get the Telegram bot
+# and the watchdog URL.
 #
-# `docker compose config` prints the file with secrets filled in: run it only
-# as `docker compose config --quiet`.
+# `docker compose config` prints the file with secrets filled in: run it only as
+# `docker compose config --quiet`.
 
 # Not crypto-market-dwh: that is the Snowflake original's stack on the same machine.
 name: crypto-market-dwh-duckdb
 
 x-project-env: &project-env
-  # Loader: service user CRYPTO_LOADER (ingestion/clients/snowflake_conn.py).
-  SNOWFLAKE_ACCOUNT: ${SNOWFLAKE_ACCOUNT:-}
-  SNOWFLAKE_USER: ${SNOWFLAKE_USER:-}
-  SNOWFLAKE_PRIVATE_KEY_PATH: /run/secrets/snowflake_loader_key
-  SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${SNOWFLAKE_PRIVATE_KEY_PASSPHRASE:-}
-  SNOWFLAKE_ROLE: ${SNOWFLAKE_ROLE:-}
-  SNOWFLAKE_WAREHOUSE: ${SNOWFLAKE_WAREHOUSE:-}
-  SNOWFLAKE_DATABASE: ${SNOWFLAKE_DATABASE:-}
-  SNOWFLAKE_SCHEMA: ${SNOWFLAKE_SCHEMA:-}
-  # dbt: service user CRYPTO_DBT (dbt/profiles.yml).
   DBT_PROJECT_DIR: /opt/project/dbt
   DBT_PROFILES_DIR: /opt/project/dbt
-  SNOWFLAKE_DBT_PRIVATE_KEY_PATH: /run/secrets/snowflake_dbt_key
-  DBT_ENV_SECRET_SNOWFLAKE_DBT_KEY_PASSPHRASE: ${DBT_ENV_SECRET_SNOWFLAKE_DBT_KEY_PASSPHRASE:-}
-  # Export of the marts: read-only service user CRYPTO_REPORTER (ingestion/export_marts.py).
-  SNOWFLAKE_REPORTER_PRIVATE_KEY_PATH: /run/secrets/snowflake_reporter_key
-  SNOWFLAKE_REPORTER_PRIVATE_KEY_PASSPHRASE: ${SNOWFLAKE_REPORTER_PRIVATE_KEY_PASSPHRASE:-}
+  DUCKDB_PATH: /opt/project/warehouse/crypto_dwh.duckdb
+  LANDING_ZONE_DIR: /opt/project/data/raw
+  PIPELINE_MODE: ${PIPELINE_MODE:?set PIPELINE_MODE in .env (follow or own)}
 
-# Airflow settings shared by every Airflow component. There is no shared
-# airflow.cfg: a container without one writes its own with a random JWT
-# secret, API secret key and Fernet key, so these come from .env instead
-# (`:?` stops compose when one is missing rather than run with a random or
-# empty value).
+x-project-volumes: &project-volumes
+  - ${LANDING_ZONE_DIR:-./data/raw}:/opt/project/data/raw:${LANDING_ZONE_ACCESS:-ro}
+  # The warehouse file and its WAL: a cache, rebuilt from the landing zone at any time.
+  - ./warehouse:/opt/project/warehouse
+  # The mart exports the dashboard reads (ingestion/export_marts.py).
+  - ./data/marts:/opt/project/data/marts
+
+# Airflow settings shared by every Airflow component. There is no shared airflow.cfg: a
+# container without one writes its own with a random JWT secret, API secret key and Fernet
+# key, so these come from .env instead (`:?` stops compose when one is missing rather than
+# run with a random or empty value).
 x-airflow-env: &airflow-env
   AIRFLOW__CORE__EXECUTOR: LocalExecutor
   AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
@@ -65,16 +64,20 @@ x-airflow-env: &airflow-env
   AIRFLOW__CORE__DAGS_FOLDER: /opt/project/dags
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
   AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+  # The DAG is built by mode (dags/crypto_pipeline.py): the DAG processor parses it and the
+  # scheduler runs it, so both must see the same mode.
+  PIPELINE_MODE: ${PIPELINE_MODE:?set PIPELINE_MODE in .env (follow or own)}
 
-# Alert channels. `:?` as for the Airflow secrets: an empty value would turn
-# the alerts off without a word.
+# Alert channels. `:?` as for the Airflow secrets: an empty value would turn the alerts off
+# without a word.
 x-alert-env: &alert-env
   TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env}
   TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:?set TELEGRAM_CHAT_ID in .env}
   PIPELINE_HEARTBEAT_URL: ${PIPELINE_HEARTBEAT_URL:?set PIPELINE_HEARTBEAT_URL in .env}
 
 x-airflow-common: &airflow-common
-  image: crypto-market-dwh:dev
+  # Not crypto-market-dwh:dev - building here would replace the original's image.
+  image: crypto-market-dwh-duckdb:dev
   # Airflow components start only after the database is migrated.
   depends_on: &airflow-depends-on
     postgres:
@@ -88,8 +91,8 @@ services:
     image: postgres:16
     environment:
       POSTGRES_USER: airflow
-      # Applied only when the volume is first created; changing it in .env
-      # later needs ALTER USER inside postgres (or a new volume).
+      # Applied only when the volume is first created; changing it in .env later needs
+      # ALTER USER inside postgres (or a new volume).
       POSTGRES_PASSWORD: ${AIRFLOW_POSTGRES_PASSWORD:?set AIRFLOW_POSTGRES_PASSWORD in .env}
       POSTGRES_DB: airflow
     volumes:
@@ -101,12 +104,12 @@ services:
       start_period: 5s
     restart: unless-stopped
 
-  # Migrates the metadata database and creates the admin user, then exits.
-  # Not the image's _AIRFLOW_DB_MIGRATE/_AIRFLOW_WWW_USER_CREATE: the entrypoint
-  # runs those as `... || true`, so a failed migration would still let the
-  # other components start. `users create` leaves an existing user as it is.
+  # Migrates the metadata database and creates the admin user, then exits. Not the image's
+  # _AIRFLOW_DB_MIGRATE/_AIRFLOW_WWW_USER_CREATE: the entrypoint runs those as `... || true`,
+  # so a failed migration would still let the other components start. `users create` leaves
+  # an existing user as it is.
   airflow-init:
-    image: crypto-market-dwh:dev
+    image: crypto-market-dwh-duckdb:dev
     depends_on:
       postgres:
         condition: service_healthy
@@ -130,9 +133,10 @@ services:
     command: ["api-server"]
     environment:
       <<: *airflow-env
-    # Loopback only: the UI is not reachable from the local network.
+    # Loopback only: the UI is not reachable from the local network. 8090 on the host: the
+    # original's UI has 8080.
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8090:8080"
     # Task logs, written by the scheduler and read here for the UI.
     volumes:
       - airflow-logs:/opt/airflow/logs
@@ -143,30 +147,20 @@ services:
       retries: 5
       start_period: 30s
 
-  # Runs the tasks (LocalExecutor): the only Airflow component with the
-  # project's Snowflake variables, keys and landing zone.
+  # Runs the tasks (LocalExecutor): the only Airflow component with the project's landing
+  # zone, warehouse and exports.
   airflow-scheduler:
     <<: *airflow-common
-    # with-private-keys first (owner-only key copies), then the image's own
-    # entrypoint, which turns `scheduler` into `airflow scheduler`.
-    entrypoint: ["/usr/bin/dumb-init", "--", "with-private-keys", "/entrypoint"]
     command: ["scheduler"]
     environment:
       <<: [*airflow-env, *project-env, *alert-env]
-      PROJECT_KEYS_DIR: /run/project-keys
-    # Explicit mode: on a container restart (Docker or Windows reboot) Docker
-    # remounts a tmpfs without one as 755 root, and with-private-keys fails.
-    tmpfs:
-      - /run/project-keys:mode=1777
     volumes:
       - airflow-logs:/opt/airflow/logs
       # Development: the repo's DAGs over the baked-in copy, read-only.
       - ./dags:/opt/project/dags:ro
-      - ./data:/opt/project/data
-    secrets:
-      - snowflake_loader_key
-      - snowflake_dbt_key
-      - snowflake_reporter_key
+      - ${LANDING_ZONE_DIR:-./data/raw}:/opt/project/data/raw:${LANDING_ZONE_ACCESS:-ro}
+      - ./warehouse:/opt/project/warehouse
+      - ./data/marts:/opt/project/data/marts
     # Tasks report to the execution API on the API server.
     depends_on:
       <<: *airflow-depends-on
@@ -194,45 +188,35 @@ services:
       retries: 5
       start_period: 30s
 
-  # Runs the project's own commands (ingestion, dbt) without Airflow.
+  # Runs the project's own commands (ingestion, dbt) without Airflow. Not while a DAG run is
+  # going: one writer of the DuckDB file at a time.
   project:
     build:
       context: .
       target: runtime
-    image: crypto-market-dwh:dev
+    image: crypto-market-dwh-duckdb:dev
     profiles: ["tools"]
-    # Bypass Airflow's /entrypoint, which turns any command into `airflow ...`;
-    # dumb-init still forwards Ctrl+C, with-private-keys prepares the keys.
-    entrypoint: ["/usr/bin/dumb-init", "--", "with-private-keys"]
+    # Bypass Airflow's /entrypoint, which turns any command into `airflow ...`; dumb-init
+    # still forwards Ctrl+C.
+    entrypoint: ["/usr/bin/dumb-init", "--"]
     command: ["bash"]
     working_dir: /opt/project
     environment:
       <<: *project-env
       # The project venv first; Airflow's own venv is not on the path.
       PATH: /opt/project-venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-      PROJECT_KEYS_DIR: /run/project-keys
-    # In-memory directory for the owner-only key copies (with-private-keys);
-    # explicit mode for the same reason as the scheduler's.
-    tmpfs:
-      - /run/project-keys:mode=1777
-    volumes:
-      # The landing zone is the extract's high-water mark: one copy, shared
-      # with the host, never a separate volume.
-      - ./data:/opt/project/data
-    # Read-only, but shown as 0777 when mounted from Windows; compose ignores
-    # uid/gid/mode outside Swarm, hence with-private-keys.
-    secrets:
-      - snowflake_loader_key
-      - snowflake_dbt_key
-      - snowflake_reporter_key
+    volumes: *project-volumes
 
-  # Read-only dashboard over the newest mart export (dashboard/). No Snowflake variables,
-  # no keys, no Airflow: only data/marts, mounted read-only; root filesystem read-only.
+  # Read-only dashboard over the newest mart export (dashboard/). No Airflow, no project code
+  # but dashboard/: only data/marts, mounted read-only; root filesystem read-only. Profile
+  # "dashboard": while the original runs, its dashboard is enough and the VM's memory is
+  # shared by two stacks, so `up -d` leaves this one out.
   dashboard:
     build:
       context: .
       target: dashboard
     image: crypto-market-dwh-duckdb-dashboard:dev
+    profiles: ["dashboard"]
     environment:
       MARTS_DIR: /data/marts
     volumes:
@@ -260,11 +244,3 @@ services:
 volumes:
   airflow-db:
   airflow-logs:
-
-secrets:
-  snowflake_loader_key:
-    file: ${SNOWFLAKE_KEYS_DIR:?set SNOWFLAKE_KEYS_DIR in .env}/crypto_loader_rsa_key.p8
-  snowflake_dbt_key:
-    file: ${SNOWFLAKE_KEYS_DIR:?set SNOWFLAKE_KEYS_DIR in .env}/crypto_dbt_rsa_key.p8
-  snowflake_reporter_key:
-    file: ${SNOWFLAKE_KEYS_DIR:?set SNOWFLAKE_KEYS_DIR in .env}/crypto_reporter_rsa_key.p8
