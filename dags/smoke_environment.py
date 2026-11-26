@@ -1,9 +1,9 @@
 """Smoke test of the Airflow stack: the scheduler can run the project's commands.
 
-Contacts neither Binance nor Snowflake, so it is free to run. Checks that a task
-sees the project code and its venv, the Snowflake variables and owner-only key
-copies, the landing zone (read and write access) and the dbt project. No
-schedule: trigger it by hand from the UI.
+Contacts no outside service and writes nothing. Checks that a task sees the
+project code and its venv, the variables, the pipeline mode, the warehouse
+directory, the landing zone (read access; write access too in mode "own") and
+the dbt project. No schedule: trigger it by hand from the UI.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ PROJECT_BIN = "/opt/project-venv/bin"
 
 with DAG(
     dag_id="smoke_environment",
-    description="Local checks of the stack; no Binance, no Snowflake",
+    description="Local checks of the stack; no outside service",
     schedule=None,
     catchup=False,
     is_paused_upon_creation=True,

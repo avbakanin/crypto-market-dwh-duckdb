@@ -1,8 +1,11 @@
 """DAG integrity tests. They need Airflow, so they run with Airflow's interpreter in the image:
 
-    docker run --rm --entrypoint python crypto-market-dwh:test -m pytest -q tests_airflow
+    docker run --rm --entrypoint python crypto-market-dwh-duckdb:test -m pytest -q tests_airflow
 
 (the project venv has no Airflow; Airflow's has no project dependencies).
+
+The pipeline DAG is built by PIPELINE_MODE when its file is parsed, so every DagBag here is
+parsed with the mode set (and unset, for the error).
 """
 
 from __future__ import annotations
@@ -17,11 +20,21 @@ from alerting.callbacks import heartbeat, run_failure_alert, task_failure_alert,
 
 DAGS_DIR = Path(__file__).resolve().parents[1] / "dags"
 PROJECT_BIN = "/opt/project-venv/bin/"
+MODES = ("follow", "own")
 
 
-@pytest.fixture(scope="module")
-def dagbag() -> DagBag:
-    return DagBag(dag_folder=DAGS_DIR)
+def parse(mode: str | None) -> DagBag:
+    with pytest.MonkeyPatch.context() as env:
+        if mode is None:
+            env.delenv("PIPELINE_MODE", raising=False)
+        else:
+            env.setenv("PIPELINE_MODE", mode)
+        return DagBag(dag_folder=DAGS_DIR)
+
+
+@pytest.fixture(scope="module", params=MODES)
+def dagbag(request: pytest.FixtureRequest) -> DagBag:
+    return parse(request.param)
 
 
 def test_every_dag_file_imports(dagbag: DagBag) -> None:
@@ -51,32 +64,76 @@ def test_smoke_environment_has_no_schedule_and_checks_before_dbt(dagbag: DagBag)
     assert dag.task_dict["dbt_parse"].upstream_task_ids == {"check_environment"}
 
 
-PIPELINE_EXTRACTS = {
+@pytest.mark.parametrize(
+    "mode", [None, "", "Follow", "both"], ids=["unset", "empty", "case", "other"]
+)
+def test_the_pipeline_without_a_known_mode_is_an_import_error(mode: str | None) -> None:
+    dagbag = parse(mode)
+    assert "crypto_pipeline" not in dagbag.dag_ids
+    assert "smoke_environment" in dagbag.dag_ids  # the other DAGs are not affected
+    (error,) = dagbag.import_errors.values()
+    assert "PIPELINE_MODE must be one of follow, own" in error
+
+
+# --- the pipeline ------------------------------------------------------------------------------
+
+EXTRACTS = {
     "extract_klines",
     "extract_funding",
     "extract_open_interest",
     "extract_long_short",
 }
+LOAD_AND_AFTER = {
+    "load_raw",
+    "source_freshness",
+    "dbt_build",
+    "dq_log",
+    "export_marts",
+}
+
+
+def extracts_of(pipeline: DAG) -> set[str]:
+    return EXTRACTS if "own" in pipeline.tags else set()
+
+
+@pytest.fixture(scope="module", params=MODES)
+def pipeline(request: pytest.FixtureRequest) -> DAG:
+    return parse(request.param).dags["crypto_pipeline"]
 
 
 @pytest.fixture(scope="module")
-def pipeline(dagbag: DagBag) -> DAG:
-    return dagbag.dags["crypto_pipeline"]
+def follower() -> DAG:
+    return parse("follow").dags["crypto_pipeline"]
 
 
-def test_pipeline_runs_every_three_hours_one_run_at_a_time(pipeline: DAG) -> None:
+@pytest.fixture(scope="module")
+def owner() -> DAG:
+    return parse("own").dags["crypto_pipeline"]
+
+
+def test_the_pipeline_is_tagged_with_its_mode(follower: DAG, owner: DAG) -> None:
+    assert set(follower.tags) == {"pipeline", "follow"}
+    assert set(owner.tags) == {"pipeline", "own"}
+
+
+def test_a_follower_runs_half_an_hour_after_the_original_an_owner_at_its_time(
+    follower: DAG, owner: DAG
+) -> None:
+    assert follower.schedule == "37 */3 * * *"
+    assert owner.schedule == "7 */3 * * *"
+
+
+def test_pipeline_runs_on_a_cron_one_run_at_a_time(pipeline: DAG) -> None:
     assert isinstance(pipeline.timetable, CronTriggerTimetable)
-    assert pipeline.schedule == "7 */3 * * *"
     assert pipeline.catchup is False
-    assert pipeline.max_active_runs == 1
+    assert pipeline.max_active_runs == 1  # one writer of the DuckDB file
 
 
-def test_pipeline_order(pipeline: DAG) -> None:
-    upstream = {task_id: task.upstream_task_ids for task_id, task in pipeline.task_dict.items()}
+def test_a_follower_has_no_extract_and_loads_after_the_check(follower: DAG) -> None:
+    upstream = {task_id: task.upstream_task_ids for task_id, task in follower.task_dict.items()}
     assert upstream == {
         "check_environment": set(),
-        **{extract: {"check_environment"} for extract in PIPELINE_EXTRACTS},
-        "load_raw": PIPELINE_EXTRACTS,
+        "load_raw": {"check_environment"},
         "source_freshness": {"load_raw"},
         "dbt_build": {"source_freshness"},
         "dq_log": {"dbt_build"},
@@ -84,22 +141,33 @@ def test_pipeline_order(pipeline: DAG) -> None:
     }
 
 
-def test_only_extracts_skip_and_only_on_nothing_new(pipeline: DAG) -> None:
+def test_an_owner_extracts_in_parallel_between_the_check_and_the_load(owner: DAG) -> None:
+    upstream = {task_id: task.upstream_task_ids for task_id, task in owner.task_dict.items()}
+    assert upstream == {
+        "check_environment": set(),
+        **{extract: {"check_environment"} for extract in EXTRACTS},
+        "load_raw": EXTRACTS,
+        "source_freshness": {"load_raw"},
+        "dbt_build": {"source_freshness"},
+        "dq_log": {"dbt_build"},
+        "export_marts": {"dq_log"},
+    }
+
+
+def test_only_nothing_new_skips_the_extracts_and_the_load(pipeline: DAG) -> None:
+    skipping = extracts_of(pipeline) | {"load_raw"}
     for task_id, task in pipeline.task_dict.items():
-        if task_id in PIPELINE_EXTRACTS:
+        if task_id in skipping:
             assert task.bash_command.endswith("--nothing-new-exit-code 99"), task_id
             assert list(task.skip_on_exit_code) == [99], task_id
         else:
             assert list(task.skip_on_exit_code) == [], task_id
 
 
-def test_load_runs_when_one_extract_wrote_a_batch_and_none_failed(pipeline: DAG) -> None:
+def test_the_load_runs_unless_an_extract_failed(pipeline: DAG) -> None:
+    """All extracts skipped still loads: batches of the original or of a past run may wait."""
     for task_id, task in pipeline.task_dict.items():
-        expected = (
-            TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS
-            if task_id == "load_raw"
-            else TriggerRule.ALL_SUCCESS
-        )
+        expected = TriggerRule.NONE_FAILED if task_id == "load_raw" else TriggerRule.ALL_SUCCESS
         assert task.trigger_rule == expected, task_id
 
 
@@ -107,7 +175,7 @@ def test_retries_only_where_a_retry_can_help(pipeline: DAG) -> None:
     retries = {task_id: task.retries for task_id, task in pipeline.task_dict.items()}
     assert retries == {
         "check_environment": 0,
-        **dict.fromkeys(PIPELINE_EXTRACTS, 2),
+        **dict.fromkeys(extracts_of(pipeline), 2),
         "load_raw": 1,
         "source_freshness": 0,
         "dbt_build": 0,
@@ -122,13 +190,16 @@ def test_pipeline_tasks_have_a_timeout_and_push_no_xcom(pipeline: DAG) -> None:
         assert task.do_xcom_push is False, task_id
 
 
-def test_dbt_commands(pipeline: DAG) -> None:
+def test_load_and_dbt_commands(pipeline: DAG) -> None:
     """The build uses the default selector; freshness must select its sources itself."""
     commands = {task_id: task.bash_command for task_id, task in pipeline.task_dict.items()}
+    load = "python -m ingestion.load_raw --nothing-new-exit-code 99"
     freshness = "dbt source freshness --select source:binance"  # the selector has no source
+    assert commands["load_raw"] == f"{PROJECT_BIN}{load}"
     assert commands["source_freshness"] == f"{PROJECT_BIN}{freshness}"
     assert commands["dbt_build"] == f"{PROJECT_BIN}dbt build"
     assert commands["dq_log"] == f"{PROJECT_BIN}dbt test --select tag:dq_log"
+    assert set(commands) == {"check_environment"} | extracts_of(pipeline) | LOAD_AND_AFTER
 
 
 def test_the_export_reads_the_marts_last_and_only_after_every_check_passed(pipeline: DAG) -> None:

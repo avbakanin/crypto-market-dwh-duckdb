@@ -1,29 +1,40 @@
-"""The pipeline: Binance -> landing zone -> Snowflake RAW -> dbt -> files for the dashboard.
+"""The pipeline: Binance -> landing zone -> DuckDB RAW -> dbt -> files for the dashboard.
 
-check_environment -> extract x4 (in parallel) -> load_raw -> source_freshness -> dbt_build
-    -> dq_log -> export_marts
+Its shape depends on PIPELINE_MODE (who owns the landing zone, see ingestion/settings.py):
+
+follow  check_environment -> load_raw -> source_freshness -> dbt_build -> dq_log -> export_marts
+        The Snowflake original extracts into the landing zone (at :07) and this stack mounts
+        it read-only: no extract tasks, and the run comes 30 minutes later, at :37.
+own     check_environment -> extract x4 (in parallel) -> load_raw -> ... (as above), at :07.
 
 * The extracts work from their high-water marks, not from the run's logical date: a run
   after any downtime catches up by itself (open interest within its 30-day window), so
-  there is no catchup and no backfill.
-* An extract with nothing new writes no batch and exits 99, which BashOperator reports as
-  skipped. load_raw runs when at least one extract wrote a batch and none failed; when all
-  four are skipped, everything downstream is skipped too and the warehouse stays asleep.
+  there is no catchup and no backfill. The same holds for the loader: it loads every
+  complete batch that is not in RAW yet.
+* "Nothing new" exits 99, which BashOperator reports as skipped: an extract that wrote no
+  batch, and the loader when no dataset had a batch to load. load_raw runs when no extract
+  failed (all skipped is fine: the original may have written batches, or a past run's
+  batches may wait); when it skips, everything downstream skips and nothing is rebuilt.
 * Failures of dbt are findings about the data, not transient errors: no retries there.
   The DQ log is reconciled in a second dbt call, after the hook of the build has written it.
-* The marts are exported to data/marts/ (Parquet, read-only service user) only after the
-  build and the reconciliation passed: the dashboard reads the last checked state, and
-  works without Snowflake.
-* Alerts (dags/alerting): a Telegram message when a task fails for good (with the failed
-  dbt checks and where their rows are, or the last output of the command) or the run
-  times out, and when a warn-level DQ check finds more rows than in the previous build.
-  Every successful run pings an outside watchdog, which alerts when the pings stop.
+* The marts are exported to data/marts/ (Parquet, from the warehouse opened read-only) only
+  after the build and the reconciliation passed: the dashboard reads the last checked state.
+* One writer of the DuckDB file: the tasks run one after another and one run at a time.
+* Alerts (dags/alerting, messages start with "[duckdb]"): a Telegram message when a task
+  fails for good (with the failed dbt checks and where their rows are, or the last output
+  of the command) or the run times out, and when a warn-level DQ check finds more rows than
+  in the previous build. Every successful run pings an outside watchdog, which alerts when
+  the pings stop.
+
+The mode is read when the file is parsed: the DAG processor and the scheduler both get it
+from docker-compose.yaml. An unset or unknown mode is an import error, shown in the UI.
 
 Trigger it by hand with "Drain" (the run goes, the DAG stays paused) before unpausing it.
 """
 
 from __future__ import annotations
 
+import os
 from datetime import timedelta
 from typing import Any
 
@@ -35,17 +46,26 @@ from alerting.callbacks import heartbeat, run_failure_alert, task_failure_alert,
 PROJECT_HOME = "/opt/project"
 # The project's own venv, not Airflow's: see the Dockerfile.
 PROJECT_BIN = "/opt/project-venv/bin"
+# The values of ingestion.settings.PIPELINE_MODES (the DAG cannot import the project: it
+# runs in Airflow's interpreter).
+FOLLOW = "follow"
+OWN = "own"
 # At :07 the last hour's candle is closed and the open interest point and funding
-# settlement of the hour are published (lags of about a minute; 5 minutes assumed).
-# Every 3 hours: completeness does not depend on the cadence, the warehouse bill does.
-SCHEDULE = "7 */3 * * *"
+# settlement of the hour are published (lags of about a minute; 5 minutes assumed). A
+# follower comes 30 minutes after the original's run, which takes 3-5 minutes.
+# Every 3 hours: completeness does not depend on the cadence.
+SCHEDULES = {FOLLOW: "37 */3 * * *", OWN: "7 */3 * * *"}
 SKIPPED = 99  # BashOperator's default skip_on_exit_code
 EXTRACTS = ("klines", "funding", "open_interest", "long_short")
+
+MODE = os.environ.get("PIPELINE_MODE", "")
+if MODE not in SCHEDULES:
+    raise ValueError(f"PIPELINE_MODE must be one of {', '.join(SCHEDULES)}")
 
 
 def project_task(task_id: str, command: str, **kwargs: Any) -> BashOperator:
     """A command of the project venv, run from the project root."""
-    kwargs.setdefault("skip_on_exit_code", None)  # only the extracts may skip
+    kwargs.setdefault("skip_on_exit_code", None)  # only "nothing new" may skip
     return BashOperator(
         task_id=task_id,
         bash_command=f"{PROJECT_BIN}/{command}",
@@ -56,13 +76,13 @@ def project_task(task_id: str, command: str, **kwargs: Any) -> BashOperator:
 
 with DAG(
     dag_id="crypto_pipeline",
-    description="Extract, load, transform and check the crypto market data",
-    schedule=SCHEDULE,
+    description=f"Load, transform and check the crypto market data (mode: {MODE})",
+    schedule=SCHEDULES[MODE],
     catchup=False,
-    max_active_runs=1,  # idempotent steps still must not race each other
+    max_active_runs=1,  # one writer of the DuckDB file; idempotent steps still must not race
     dagrun_timeout=timedelta(hours=2),
     is_paused_upon_creation=True,
-    tags=["pipeline"],
+    tags=["pipeline", MODE],
     doc_md=__doc__,
     on_failure_callback=run_failure_alert,  # timed out or deadlocked, not task failures
     on_success_callback=heartbeat,  # every successful run, all-skipped ones included
@@ -89,13 +109,15 @@ with DAG(
             retry_delay=timedelta(minutes=5),
             retry_exponential_backoff=True,
         )
-        for name in EXTRACTS
+        for name in (EXTRACTS if MODE == OWN else ())
     ]
-    # Idempotent (its own guard + COPY load metadata): one retry for a lost connection.
+    # Idempotent (a batch loads in one transaction, its own guard): one retry, e.g. for the
+    # file's lock held by a command started by hand.
     load_raw = project_task(
         "load_raw",
-        "python -m ingestion.load_raw",
-        trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
+        f"python -m ingestion.load_raw --nothing-new-exit-code {SKIPPED}",
+        skip_on_exit_code=SKIPPED,
+        trigger_rule=TriggerRule.NONE_FAILED,
         retries=1,
         retry_delay=timedelta(minutes=5),
     )
@@ -107,8 +129,7 @@ with DAG(
     dbt_build = project_task("dbt_build", "dbt build", on_success_callback=warning_digest)
     dq_log = project_task("dq_log", "dbt test --select tag:dq_log")
     # Every try writes a new export directory, and an incomplete one is never read and is
-    # pruned later: one retry for a lost connection is safe. The warehouse is usually
-    # still awake from dbt.
+    # pruned later: one retry is safe.
     export_marts = project_task(
         "export_marts",
         "python -m ingestion.export_marts",
@@ -117,12 +138,8 @@ with DAG(
         execution_timeout=timedelta(minutes=10),
     )
 
-    (
-        check_environment
-        >> extracts
-        >> load_raw
-        >> source_freshness
-        >> dbt_build
-        >> dq_log
-        >> export_marts
-    )
+    if extracts:
+        check_environment >> extracts >> load_raw
+    else:
+        check_environment >> load_raw
+    load_raw >> source_freshness >> dbt_build >> dq_log >> export_marts
