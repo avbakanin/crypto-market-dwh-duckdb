@@ -78,6 +78,16 @@ def test_start_is_the_mark_itself_or_the_window_for_a_new_contract() -> None:
     assert ef.start_ms_for(START_MS, NOW_MS) == window_start  # mark older than the window
 
 
+def test_a_new_contracts_window_starts_on_the_hour_it_expects() -> None:
+    # now at 16:45: the window starts 16:00, so the 16:00:00.003 settlement is fetched
+    # and counted alike (an unaligned start missed it yet expected it).
+    now = at(9000) + 45 * 60_000
+    start = ef.start_ms_for(None, now, history_days=1)
+    assert start == at(9000 - 24)
+    settled = [at(h) + 3 for h in range(9000 - 24, 9001) if h % 8 == 0 and at(h) + 3 >= start]
+    assert len(settled) == ef.expected_settlements(start, now + LAG, 8)
+
+
 # --- check_funding ----------------------------------------------------------------------------
 
 

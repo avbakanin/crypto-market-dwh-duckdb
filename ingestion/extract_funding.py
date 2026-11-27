@@ -82,10 +82,12 @@ def last_settled_ms(now_ms: int, interval_hours: int) -> int:
     return (now_ms - PUBLISH_LAG_MS) // step * step
 
 
-def start_ms_for(mark: int | None, now_ms: int) -> int:
+def start_ms_for(mark: int | None, now_ms: int, history_days: int = HISTORY_DAYS) -> int:
     """First fundingTime to request: the history window for a new contract, else the mark
-    itself (re-read: proves the seam); never earlier than the history window."""
-    window_start = now_ms - HISTORY_DAYS * DAY_MS
+    itself (re-read: proves the seam); never earlier than the history window. The window
+    starts on the hour: a settlement lands a few ms after it, and expected_settlements
+    counts the start's hour."""
+    window_start = (now_ms - history_days * DAY_MS) // HOUR_MS * HOUR_MS
     return window_start if mark is None else max(window_start, mark)
 
 
@@ -128,7 +130,11 @@ def ms_to_utc(ms: int) -> datetime:
 
 
 def extract_batch(
-    client: FundingSource, contracts: list[str], now_ms: int, output_dir: Path = OUTPUT_DIR
+    client: FundingSource,
+    contracts: list[str],
+    now_ms: int,
+    output_dir: Path = OUTPUT_DIR,
+    history_days: int = HISTORY_DAYS,
 ) -> Path | None:
     """Extract funding records new since each contract's mark into a new batch directory.
 
@@ -146,7 +152,7 @@ def extract_batch(
         if mark is not None and funding_hour(mark) >= last_settled_ms(now_ms, interval):
             print(f"{prefix} up to date ({interval}h)")  # no settlement since: no request
             continue
-        start_ms = start_ms_for(mark, now_ms)
+        start_ms = start_ms_for(mark, now_ms, history_days)
         records = fetch_funding(client, symbol, start_ms, now_ms)
         new_from = start_ms if mark is None else funding_hour(mark) + HOUR_MS
         if not any(r["fundingTime"] >= new_from for r in records):
