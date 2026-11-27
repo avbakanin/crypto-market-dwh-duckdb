@@ -1,5 +1,9 @@
 # Data quality report
 
+> Written on the Snowflake original ([crypto-market-dwh](https://github.com/avbakanin/crypto-market-dwh)).
+> The port keeps the same tests and DQ layer and builds `PASS=193 WARN=2` on the same input (source note 117);
+> mentions of Snowflake roles, stages and `COPY` describe the original only.
+
 What the pipeline checks, how it reacts, and what the checks found in real Binance data.
 State as of 2026-11-24 (pipeline run of 18:07 UTC).
 

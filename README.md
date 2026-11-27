@@ -1,26 +1,29 @@
 # crypto-market-dwh-duckdb
 
-> **Port in progress.** This repository is the DuckDB port of
-> [crypto-market-dwh](https://github.com/avbakanin/crypto-market-dwh), the same pipeline
-> on Snowflake, whose 30-day trial ends in December 2026. The port keeps the landing zone,
-> the dbt models and the data quality layer, replaces Snowflake with one local DuckDB file
-> (dbt-duckdb), and is checked layer by layer against a baseline taken in Snowflake on the
-> same input ([docs/snowflake_baseline.md](docs/snowflake_baseline.md)). Until the port is
-> finished, the text below describes the Snowflake original.
+A local, free market-data pipeline for Binance: Binance API → landing zone → DuckDB → dbt →
+Parquet → Streamlit, orchestrated by Airflow, with a data quality layer that checks the
+data, the loads and itself, and alerts in Telegram. It is the base of a personal
+trading-signal system (features, labels and honest backtests come next).
 
-**What happens to volume, open interest and funding in the 24 hours around a sharp hourly
-rise of a coin?** An end-to-end pipeline answers it on a year of Binance data: Binance API →
-Snowflake → dbt → Streamlit, orchestrated by Airflow, with a data quality layer that checks
-the data, the loads and itself.
+> **Status: live.** Since 2026-11-27 this pipeline owns the landing zone and runs every
+> 3 hours at :07 UTC. It is the DuckDB port of
+> [crypto-market-dwh](https://github.com/avbakanin/crypto-market-dwh) (Snowflake, archived
+> when its trial ended). The port was checked layer by layer against a baseline taken in
+> Snowflake on the same input: [docs/duckdb_vs_snowflake.md](docs/duckdb_vs_snowflake.md).
+
+**First question answered: what happens to volume, open interest and funding in the 24 hours
+around a sharp hourly rise of a coin?** On a year of hourly data for 23 liquid coins.
 
 - **Findings:** [docs/findings.md](docs/findings.md): five conclusions with sample sizes and
   confidence intervals.
 - **Data quality:** [docs/data_quality_report.md](docs/data_quality_report.md): 164 data
   tests, 13 unit tests, what they found in real APIs.
-- **Source notes:** [docs/source_notes.md](docs/source_notes.md): 102 observations about
-  the Binance APIs, Snowflake, dbt, Airflow and Docker, each with evidence.
-- **Baseline:** [docs/snowflake_baseline.md](docs/snowflake_baseline.md): 758 metrics
-  fingerprinting every layer, used to check the planned DuckDB copy.
+- **Source notes:** [docs/source_notes.md](docs/source_notes.md): observations about the
+  Binance APIs, Snowflake, DuckDB, dbt, Airflow and Docker, each with evidence.
+- **Port check:** [docs/duckdb_vs_snowflake.md](docs/duckdb_vs_snowflake.md) and
+  [docs/duckdb_vs_snowflake_export.md](docs/duckdb_vs_snowflake_export.md): every layer and
+  the exported marts against the Snowflake baseline
+  ([docs/snowflake_baseline.md](docs/snowflake_baseline.md)).
 
 ## Architecture
 
@@ -30,16 +33,16 @@ flowchart LR
     subgraph dag["Airflow DAG, every 3 h"]
         direction TB
         ext["extract x4<br/>from high-water marks"] --> lz[("landing zone<br/>immutable batches")]
-        lz --> load["load_raw<br/>PUT + COPY, reconcile"]
+        lz --> load["load_raw<br/>transaction per batch,<br/>reconcile"]
         load --> fresh["source freshness"]
         fresh --> build["dbt build<br/>models + tests"]
         build --> rec["DQ log reconciliation"]
         rec --> exp["export_marts"]
     end
-    subgraph sf["Snowflake"]
+    subgraph wh["DuckDB file"]
         direction TB
-        raw[("RAW<br/>append-only")] --> stg[("STAGING")] --> marts[("MARTS")]
-        dq[("DQ<br/>findings + log")]
+        raw[("raw<br/>append-only")] --> stg[("staging")] --> marts[("marts")]
+        dq[("dq<br/>findings + log")]
     end
     subgraph out["Dashboard"]
         direction TB
@@ -51,32 +54,33 @@ flowchart LR
         hc["healthchecks.io<br/>heartbeat"]
     end
     api --> dag
-    dag <-->|"load RAW,<br/>dbt build + tests"| sf
-    sf -->|"export_marts<br/>as read-only reporter"| out
+    dag <-->|"load raw,<br/>dbt build + tests"| wh
+    wh -->|"export_marts"| out
     dag -.-> alerts
 ```
 
 - **Extract** works from high-water marks kept in the landing zone, not from the warehouse:
   each run fetches only what is new, writes an immutable batch and its manifest last.
+- **The landing zone is the source of truth;** the DuckDB file is a cache that can be rebuilt
+  from it at any time (`python -m ingestion.load_raw`, then `dbt build`).
 - **Load** puts each batch into a RAW journal that keeps every version of a record with its
-  lineage, then reconciles rows and duplicates per symbol against the manifest.
+  lineage, in one transaction per batch: guard on `_batch_id`, insert, reconcile rows and
+  duplicates per symbol against the manifest, then commit or roll back.
 - **dbt** types, deduplicates and tests in staging, builds hourly market state and the
-  pump marts, stores the findings of every test in the `DQ` schema and logs every node of
+  pump marts, stores the findings of every test in the `dq` schema and logs every node of
   every run.
-- **Least privilege:** three service users with key-pair auth: the loader writes only RAW,
-  dbt reads RAW and writes the models, the reporter only reads MARTS and DQ.
-- **The dashboard** reads the Parquet export, never the warehouse: it needs no credentials.
+- **The dashboard** reads the Parquet export, never the warehouse file (DuckDB has one writer).
 
 ## Stack
 
 | Layer | Tools |
 |---|---|
-| Ingestion | Python 3.12, `requests`, `snowflake-connector-python` 5.2, `pyarrow` |
-| Warehouse | Snowflake (X-Small Gen1, auto-suspend 60 s, two resource monitors) |
-| Transformation and tests | dbt Core 1.12.7, dbt-snowflake 1.12.5, dbt_utils |
+| Ingestion | Python 3.12, `requests`, `pyarrow` |
+| Warehouse | DuckDB 2.0.1, one local file |
+| Transformation and tests | dbt Core 1.12.7, dbt-duckdb 1.11.1, dbt_utils |
 | Orchestration and alerts | Airflow 3.4.0 (LocalExecutor) in Docker Compose, Telegram bot, healthchecks.io |
 | Dashboard | Streamlit 1.67, DuckDB 2.0, Altair |
-| Quality of the code | pytest (389 tests + 46 DAG and alert tests), dbt unit tests, mutation testing, ruff, pyright |
+| Quality of the code | pytest (435 tests + 67 DAG and alert tests), dbt unit tests, mutation testing, ruff, pyright |
 
 ## Findings in one screen
 
@@ -113,6 +117,8 @@ Full report: [docs/data_quality_report.md](docs/data_quality_report.md).
 
 ## Screenshots
 
+Taken on the Snowflake original; the port's dashboard, DAG and alerts are the same.
+
 **Dashboard, pumps.** 198 episodes over a year, split into single-coin pumps and market
 moves; filters by scope, coin, date and threshold.
 
@@ -145,32 +151,26 @@ the query that shows the offending row, plus the warnings that ran before the st
 
 ## Run it
 
-**Prerequisites.** Docker Desktop and a Snowflake account (a trial works).
+**Prerequisites.** Docker Desktop. No accounts and no keys: the warehouse is a local file.
 
-1. Run [snowflake/setup.sql](snowflake/setup.sql) in Snowsight as `ACCOUNTADMIN`: database,
-   schemas, warehouse, resource monitors, roles and three service users.
-2. Create three encrypted key pairs named `crypto_loader_rsa_key.p8`,
-   `crypto_dbt_rsa_key.p8` and `crypto_reporter_rsa_key.p8` in one directory outside the
-   repo, and register each public key:
-   `ALTER USER CRYPTO_LOADER ADD KEY PAIR loader_key_1 PUBLIC_KEY = '...'`
-   (likewise `CRYPTO_DBT`, `CRYPTO_REPORTER`).
-3. Copy [.env.example](.env.example) to `.env` and fill it in (it says what each value is).
-
-**Three commands** (PowerShell or any shell, from the repo root):
+1. Copy [.env.example](.env.example) to `.env` and fill it in (it says what each value is).
+2. From the repo root:
 
 ```powershell
-docker compose --profile tools build
-docker compose run --rm project bash -c 'for m in klines funding open_interest long_short; do python -m ingestion.extract_$m || exit 1; done'
+docker compose --profile tools --profile dashboard build
 docker compose up -d
+docker compose --profile dashboard up -d dashboard
 ```
 
-The first builds the pipeline and dashboard images; the second makes the first extract (a
-year of candles and funding, 30 days of open interest and long/short); the third starts
-Airflow and the dashboard. Then in the Airflow UI at http://localhost:8080 unpause
-`crypto_pipeline` and trigger it once; after the run the dashboard at http://localhost:8501
-shows the data. The DAG then runs every 3 hours at :07 UTC.
+Then in the Airflow UI at http://127.0.0.1:8090 unpause `crypto_pipeline` and trigger it
+once: on an empty landing zone the extracts fetch a year of candles and funding and 30 days
+of open interest and long/short, then the run loads, builds, tests and exports. The
+dashboard at http://127.0.0.1:8502 shows the data. The DAG then runs every 3 hours at :07 UTC.
 
-**Without Snowflake**, from an existing export in `data/marts/`:
+Run manual commands (`docker compose run --rm project ...`) only between DAG runs: DuckDB
+allows one writer.
+
+**Without Docker**, from an existing export in `data/marts/`:
 
 ```powershell
 pip install -r requirements-dashboard.txt
@@ -182,29 +182,34 @@ python -m analysis.pump_findings
 ```powershell
 pip install -r requirements-dev.txt
 ruff check .; ruff format --check .; pyright; python -m pytest -q
-docker build --target test -t crypto-market-dwh:test .; docker run --rm crypto-market-dwh:test
-docker run --rm --entrypoint python crypto-market-dwh:test -m pytest -q tests_airflow
+docker build --target test -t crypto-market-dwh-duckdb:test .; docker run --rm crypto-market-dwh-duckdb:test
+docker run --rm --entrypoint python crypto-market-dwh-duckdb:test -m pytest -q tests_airflow
 ```
 
 The test image runs the same suite on Linux; the last command runs the DAG and alert tests
 with Airflow's own interpreter.
+
+- **Against Snowflake:** `python -m analysis.compare_baseline` (every layer on the baseline's
+  input) and `python -m analysis.compare_export` (the marts row by row against an export of
+  the original on the same input).
+- **Determinism:** two full `dbt build` runs on the same RAW give equal fingerprints (row
+  count and row hashes) for every table except the two append-only DQ journals
+  (`dq.dbt_node_results`, `dq.dq_check_results`), which gain one build's rows (source
+  note 127).
 
 ## Repository
 
 | Path | What |
 |---|---|
 | [ingestion/](ingestion/) | Binance clients, extracts, landing zone batches, loader, export, environment check |
-| [snowflake/](snowflake/) | account setup and RAW DDL |
 | [dbt/](dbt/) | models (staging, intermediate, marts, DQ), tests, macros, DQ log hooks |
 | [dags/](dags/) | the pipeline DAG and the alerting package |
 | [dashboard/](dashboard/) | Streamlit app and its data layer |
-| [analysis/](analysis/) | the findings report computed from the export; the landing zone check of the baseline |
+| [analysis/](analysis/) | the findings report; comparisons with the Snowflake baseline and export; landing zone fingerprint |
 | [tests/](tests/), [tests_airflow/](tests_airflow/) | Python tests; DAG and alert tests |
-| [docs/](docs/) | findings, data quality report, source notes, Snowflake baseline |
+| [docs/](docs/) | findings, data quality report, source notes, Snowflake baseline and the port's comparisons |
 
-## Cost
+## Footprint
 
-One run keeps Snowflake busy for about 1.5 minutes and costs about 0.04 credits of compute
-plus cloud services; eight runs a day stay well inside a 2-credit daily monitor. The warehouse
-is paid per wake-up, so the whole chain runs in one; how this was measured is in
-[source notes 45, 58 and 75](docs/source_notes.md#platform-observations-snowflake).
+A run takes about 75 seconds including the extracts. The warehouse file is about 190 MB and
+levels off: dbt recreates every table, and DuckDB reuses the freed blocks (source note 126).

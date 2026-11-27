@@ -1,5 +1,9 @@
 # What happens around a pump: findings
 
+> Written on the Snowflake original ([crypto-market-dwh](https://github.com/avbakanin/crypto-market-dwh)).
+> The port reproduces its marts on the same input ([duckdb_vs_snowflake_export.md](duckdb_vs_snowflake_export.md)),
+> except the numbers against control hours, which depend on the drawn hours (source note 121).
+
 The question of the project: **what do volume, open interest and funding do in the 24 hours
 before and after a sharp hourly rise of a coin?** Below are five findings from a year of
 hourly Binance data on 23 liquid coins, each with its sample size, a 95 % confidence
