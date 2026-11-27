@@ -14,7 +14,7 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import Any, NotRequired, TypedDict, cast
 
 BATCH_ID_FORMAT = "%Y%m%dT%H%M%SZ"  # UTC as-of moment: sorts chronologically, safe in paths
 BATCH_ID_PATTERN = re.compile(r"\d{8}T\d{6}Z")
@@ -28,6 +28,8 @@ class Manifest(TypedDict):
     # symbol -> stats of its file: DQ counts (rows, duplicates, gaps, expected) plus the
     # newest record time in the file: last_ms (klines: last_open_ms; absent before Week 2)
     symbols: dict[str, dict[str, int]]
+    # symbol -> {source file name: sha256}: archive extracts only (extract_archive.py)
+    sources: NotRequired[dict[str, dict[str, str]]]
 
 
 def batch_id_for(as_of_ms: int) -> str:
@@ -68,15 +70,25 @@ class BatchWriter:
         self.as_of_utc = datetime.fromtimestamp(as_of_ms / 1000, tz=UTC).isoformat()
         self.interval = interval
         self.symbols: dict[str, dict[str, int]] = {}
+        self.sources: dict[str, dict[str, str]] = {}
 
-    def add(self, symbol: str, records: list[Any], stats: dict[str, int]) -> None:
-        """Write one symbol's file exactly as received; its stats go into the manifest."""
+    def add(
+        self,
+        symbol: str,
+        records: list[Any],
+        stats: dict[str, int],
+        sources: dict[str, str] | None = None,
+    ) -> None:
+        """Write one symbol's file exactly as received; its stats (and the source files it
+        came from, for an archive extract) go into the manifest."""
         if symbol in self.symbols:
             raise ValueError(f"{symbol} is already in batch {self.batch_dir.name}")
         if not self.symbols:
             self.batch_dir.mkdir(parents=True)  # no exist_ok: guards a concurrent run too
         (self.batch_dir / f"{symbol}.json").write_text(json.dumps(records), encoding="utf-8")
         self.symbols[symbol] = stats
+        if sources is not None:
+            self.sources[symbol] = sources
 
     def finish(self) -> Path | None:
         """Write the manifest, marking the batch complete; None when nothing was added."""
@@ -88,6 +100,8 @@ class BatchWriter:
             "interval": self.interval,
             "symbols": self.symbols,
         }
+        if self.sources:
+            manifest["sources"] = self.sources
         write_manifest(self.batch_dir, manifest)
         return self.batch_dir
 

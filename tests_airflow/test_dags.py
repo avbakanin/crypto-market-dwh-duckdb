@@ -82,6 +82,8 @@ EXTRACTS = {
     "extract_funding",
     "extract_open_interest",
     "extract_long_short",
+    "extract_archive",
+    "extract_um_api",
 }
 LOAD_AND_AFTER = {
     "load_raw",

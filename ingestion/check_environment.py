@@ -19,8 +19,8 @@ import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from ingestion.batches import high_water_marks
-from ingestion.datasets import DATASETS
+from ingestion.batches import complete_batches, high_water_marks
+from ingestion.datasets import BASELINE_DATASETS, DATASETS, UM_CONTRACTS
 from ingestion.extract_klines import ms_to_utc
 from ingestion.settings import LANDING_ZONE_DIR, OWN, pipeline_mode, warehouse_path
 
@@ -52,7 +52,7 @@ def landing_zone_problem(root: Path, writable: bool) -> str | None:
     problem = directory_problem(root, writable)
     if problem:
         return problem
-    if not high_water_marks(root):
+    if not complete_batches(root):
         return "no complete batch"
     return None
 
@@ -87,9 +87,19 @@ def main(env: Mapping[str, str] | None = None) -> int:
     print(f"Landing zone: {LANDING_ZONE_DIR}")
     for dataset in DATASETS:
         problem = landing_zone_problem(dataset.landing_dir, writable)
+        if problem and dataset not in BASELINE_DATASETS and not dataset.landing_dir.exists():
+            # The USD-M universe's datasets start empty: the first archive or API run fills them.
+            print(f"Landing zone {dataset.name}: not started yet")
+            continue
         if problem:
             print(f"Landing zone {dataset.name}: {problem}")
             problems.append(f"landing zone {dataset.name} ({dataset.landing_dir}): {problem}")
+            continue
+        if dataset.name == UM_CONTRACTS.name:  # snapshots of a list: no record times
+            batches = complete_batches(dataset.landing_dir)
+            print(
+                f"Landing zone {dataset.name}: {len(batches)} snapshots, newest {batches[-1].name}"
+            )
             continue
         marks = high_water_marks(dataset.landing_dir)
         print(

@@ -5,7 +5,7 @@ Its shape depends on PIPELINE_MODE (who owns the landing zone, see ingestion/set
 follow  check_environment -> load_raw -> source_freshness -> dbt_build -> dq_log -> export_marts
         The Snowflake original extracts into the landing zone (at :07) and this stack mounts
         it read-only: no extract tasks, and the run comes 30 minutes later, at :37.
-own     check_environment -> extract x4 (in parallel) -> load_raw -> ... (as above), at :07.
+own     check_environment -> extract x6 (in parallel) -> load_raw -> ... (as above), at :07.
 
 * The extracts work from their high-water marks, not from the run's logical date: a run
   after any downtime catches up by itself (open interest within its 30-day window), so
@@ -56,7 +56,9 @@ OWN = "own"
 # Every 3 hours: completeness does not depend on the cadence.
 SCHEDULES = {FOLLOW: "37 */3 * * *", OWN: "7 */3 * * *"}
 SKIPPED = 99  # BashOperator's default skip_on_exit_code
-EXTRACTS = ("klines", "funding", "open_interest", "long_short")
+# The whitelist's four, then the USD-M universe: data.binance.vision history (a day is
+# published the morning after) and the API tail of the universe's members.
+EXTRACTS = ("klines", "funding", "open_interest", "long_short", "archive", "um_api")
 
 MODE = os.environ.get("PIPELINE_MODE", "")
 if MODE not in SCHEDULES:

@@ -96,12 +96,24 @@ def ds(klines_root: Path) -> RawDataset:
 # --- inputs ---------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("symbol", ["BTCUSDT", "1000PEPEUSDT"])
+@pytest.mark.parametrize("symbol", ["BTCUSDT", "1000PEPEUSDT", "币安人生USDT"])
 def test_symbol_names_of_the_exchange_are_accepted(symbol: str) -> None:
     assert check_symbol(symbol) == symbol
 
 
-@pytest.mark.parametrize("symbol", ["BTCUSDT.json", "../ETHUSDT", "BTC/USDT", "btcusdt", ""])
+@pytest.mark.parametrize(
+    "symbol",
+    [
+        "BTCUSDT.json",
+        "../ETHUSDT",
+        "BTC/USDT",
+        "btcusdt",
+        "",
+        "BTC_250328",
+        "币安。USDT",
+        "BTC USDT",
+    ],
+)
 def test_symbol_that_could_leave_the_batch_directory_is_refused(symbol: str) -> None:
     with pytest.raises(LoadError, match="Unexpected symbol name"):
         check_symbol(symbol)

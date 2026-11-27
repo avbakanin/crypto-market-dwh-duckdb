@@ -74,6 +74,12 @@ vars:
   # The DQ log reconciliation (tag dq_log) runs right after a build: the build it checks
   # must have started within this many minutes (the DAG's run timeout is 2 hours).
   dq_log_max_build_age_minutes: 120
+  # USD-M universe (int_um__universe_daily): the members are the top this many contracts
+  # by turnover over 30 closed days; ingestion/universe.py has the same number.
+  um_universe_size: 100
+  # Hours of the recent window in which a missing hour of a member is a stop, not a warning
+  # (older history keeps the archive's own gaps).
+  um_recent_days: 35
 
 seeds:
   crypto_market_dwh:

@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from ingestion.batches import complete_batches, is_batch_id, read_manifest
-from ingestion.datasets import DATASETS
+from ingestion.datasets import BASELINE_DATASETS as DATASETS
 
 HOUR_MS = 3_600_000
 

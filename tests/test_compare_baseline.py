@@ -10,7 +10,7 @@ import pytest
 
 from analysis import compare_baseline as cb
 from ingestion import load_raw
-from ingestion.datasets import DATASETS
+from ingestion.datasets import BASELINE_DATASETS, DATASETS
 from tests.factories import START_MS, make_funding, make_klines
 from tests.test_load_raw import B1, B2, write_batch
 
@@ -178,7 +178,7 @@ def test_raw_metrics_of_the_loaded_warehouse(warehouse: Path) -> None:
     )
     assert funding["sum_key_ms"] == str(2 * START_MS + HOUR_MS)  # whole hours, not the ms
     assert funding["sum_funding_rate"] == "0.00007500"
-    assert {k[1] for k in ours} == {d.table.split(".")[1] for d in DATASETS}
+    assert {k[1] for k in ours} == {d.table.split(".")[1] for d in BASELINE_DATASETS}
 
 
 def test_main_passes_when_the_baseline_matches_and_reports(

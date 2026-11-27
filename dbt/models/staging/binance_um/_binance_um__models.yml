@@ -1,0 +1,143 @@
+version: 2
+
+# USD-M universe: archive (incremental) and API tail (rebuilt) staging. Grid and seam
+# checks are in tests/um/ (member days, archive against API); here: keys and sanity.
+
+models:
+  - name: stg_binance__um_archive_klines_1d
+    description: >
+      Daily USD-M candles of every *USDT perpetual from data.binance.vision, one row per
+      (symbol, open_time); DECIMAL(38, 8), UTC. Incremental (macros/stg_um_archive_klines.sql).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, open_time_ms]
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "close_time_ms = open_time_ms + 86399999 and epoch_ms(open_time) = open_time_ms"
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: >
+              low_price <= least(open_price, close_price)
+              and high_price >= greatest(open_price, close_price)
+              and quote_volume >= 0 and trade_count >= 0
+          config:
+            severity: warn
+            store_failures_as: table
+            alias: dq_um_klines_1d_insane
+    columns:
+      - name: symbol
+        data_tests: [not_null]
+      - name: close_price
+        data_tests: [not_null]
+      - name: quote_volume
+        data_tests: [not_null]
+
+  - name: stg_binance__um_archive_klines_1h
+    description: >
+      Hourly USD-M candles of the universe's contracts from data.binance.vision, one row
+      per (symbol, open_time); taker buy volume included. Incremental.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, open_time_ms]
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "close_time_ms = open_time_ms + 3599999 and epoch_ms(open_time) = open_time_ms"
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: >
+              low_price <= least(open_price, close_price)
+              and high_price >= greatest(open_price, close_price)
+              and quote_volume >= 0 and trade_count >= 0
+              and taker_buy_quote_volume between 0 and quote_volume
+          config:
+            severity: warn
+            store_failures_as: table
+            alias: dq_um_klines_1h_insane
+    columns:
+      - name: symbol
+        data_tests: [not_null]
+      - name: close_price
+        data_tests: [not_null]
+
+  - name: stg_binance__um_archive_funding_rate
+    description: >
+      USD-M funding settlements from the archive's monthly files, one row per (contract,
+      settlement hour). Incremental.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [contract_symbol, funding_hour_ms]
+    columns:
+      - name: funding_rate
+        data_tests: [not_null]
+      - name: interval_hours
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 4, 8]
+                quote: false
+              config:
+                severity: warn
+                store_failures_as: table
+                alias: dq_um_funding_unknown_interval
+
+  - name: stg_binance__um_archive_metrics_1h
+    description: >
+      USD-M hourly open interest and long/short ratios from the archive (minute-00 rows of
+      the 5-minute files), columns mapped by source note 130. Incremental.
+    data_tests:
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "snapshot_lag_minutes in (0, 5)"
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [contract_symbol, snapshot_time_ms]
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "snapshot_time_ms % 3600000 = 0"
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: >
+              open_interest >= 0 and open_interest_usdt >= 0
+              and top_account_ratio > 0 and top_position_ratio > 0
+              and global_account_ratio > 0
+          config:
+            severity: warn
+            store_failures_as: table
+            alias: dq_um_metrics_insane
+
+  - name: stg_binance__um_contracts
+    description: USD-M USDT contracts, the newest exchangeInfo snapshot that lists each.
+    columns:
+      - name: contract_symbol
+        data_tests: [unique, not_null]
+      - name: contract_type
+        data_tests: [not_null]
+
+  - name: stg_binance__um_api_klines_1h
+    description: USD-M 1h candles of the universe from the API, one row per (symbol, open_time).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, open_time_ms]
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "close_time_ms = open_time_ms + 3599999"
+
+  - name: stg_binance__um_api_funding_rate
+    description: USD-M funding settlements of the universe from the API.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [contract_symbol, funding_hour_ms]
+
+  - name: stg_binance__um_api_metrics_1h
+    description: >
+      USD-M hourly open interest and the three long/short ratios of the universe from the
+      API, joined on (contract, hour).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [contract_symbol, snapshot_time_ms]

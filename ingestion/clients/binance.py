@@ -160,6 +160,22 @@ class BinanceFuturesClient(BinanceRestClient):
     def exchange_info(self) -> dict[str, Any]:
         return self.get("/fapi/v1/exchangeInfo")
 
+    def klines(
+        self,
+        symbol: str,
+        interval: str,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        limit: int = 1000,
+    ) -> list[list[Any]]:
+        """Futures (last price) klines, the spot array layout; limit up to 1500."""
+        params: dict[str, Any] = {"symbol": symbol, "interval": interval, "limit": limit}
+        if start_time is not None:
+            params["startTime"] = start_time
+        if end_time is not None:
+            params["endTime"] = end_time
+        return self.get("/fapi/v1/klines", params)
+
     def funding_info(self) -> list[dict[str, Any]]:
         """Contracts whose funding cap, floor or interval was adjusted; others use the defaults."""
         return self.get("/fapi/v1/fundingInfo")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -10,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from ingestion import check_environment as ce
+from ingestion.batches import MANIFEST_NAME
 from tests.factories import START_MS, make_marked_batch
 
 
@@ -35,7 +37,19 @@ def landing_zones(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[Path]
     datasets = []
     for dataset in ce.DATASETS:
         root = tmp_path / "raw" / dataset.name
-        make_marked_batch(root, "20250101T000000Z", {"BTCUSDT": START_MS}, key="last_ms")
+        if dataset.name == "um_contracts":  # a list of contracts: no record time
+            batch = root / "20250101T000000Z"
+            batch.mkdir(parents=True)
+            (batch / "CONTRACTS.json").write_text('[{"symbol": "BTCUSDT"}]', encoding="utf-8")
+            manifest = {
+                "batch_id": batch.name,
+                "as_of_utc": "",
+                "interval": "contracts",
+                "symbols": {"CONTRACTS": {"rows": 1, "duplicates": 0}},
+            }
+            (batch / MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
+        else:
+            make_marked_batch(root, "20250101T000000Z", {"BTCUSDT": START_MS}, key="last_ms")
         roots.append(root)
         datasets.append(dataclasses.replace(dataset, landing_dir=root))
     monkeypatch.setattr(ce, "DATASETS", tuple(datasets))
@@ -131,6 +145,7 @@ def test_main_passes_on_a_ready_environment(
     assert f"Variables: {len(ce.REQUIRED_VARS)} of {len(ce.REQUIRED_VARS)} set" in out
     assert f"Pipeline mode: {mode} (landing zone: {access})" in out
     assert "Landing zone klines: 1 symbols, newest 2025-01-01 00:00 UTC" in out
+    assert "Landing zone um_contracts: 1 snapshots, newest 20250101T000000Z" in out
     assert "OK: environment is ready" in out
 
 

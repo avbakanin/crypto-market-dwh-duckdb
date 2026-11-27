@@ -35,7 +35,9 @@ from ingestion.extract_cli import add_nothing_new_option, check_nothing_new_opti
 from ingestion.settings import warehouse_path
 from ingestion.warehouse import connect
 
-SYMBOL_PATTERN = re.compile(r"[A-Z0-9]+")
+# Upper-case Latin letters and digits, or letters of another script (Binance lists
+# 币安人生USDT): no separator, dot or underscore can reach a path.
+SYMBOL_PATTERN = re.compile(r"(?:[A-Z0-9]|(?![\x00-\x7f])[^\W\d_])+")
 
 Connection = duckdb.DuckDBPyConnection
 
@@ -45,7 +47,7 @@ class LoadError(RuntimeError):
 
 
 def check_symbol(symbol: str) -> str:
-    """Symbols become file paths: allow [A-Z0-9]+ only (no '..', no separators)."""
+    """Symbols become file paths: allow SYMBOL_PATTERN only (no '..', no separators)."""
     if SYMBOL_PATTERN.fullmatch(symbol) is None:
         raise LoadError(f"Unexpected symbol name {symbol!r}")
     return symbol
@@ -203,10 +205,17 @@ def load_pending(
     Returns the ids of the batches loaded by this call, and the problems of the batch it
     stopped at, each prefixed with the batch id (empty = all reconciled).
     """
-    pending = pending_batches(dataset.landing_dir, loaded_batches(con, dataset), until)
+    already = loaded_batches(con, dataset)
+    pending = pending_batches(dataset.landing_dir, already, until)
     if not pending:
         print(f"Every complete batch in {dataset.landing_dir} is in {dataset.table}")
         return [], []
+    if dataset.incremental and already and pending[0].name < max(already):
+        # Staging takes batches newer than its newest: this one would never reach it.
+        return [], [
+            f"{pending[0].name}: older than {max(already)}, already loaded; "
+            "an incremental dataset loads batches in order only"
+        ]
     print(f"Batches not in {dataset.table} yet: {len(pending)}")
     loaded: list[str] = []
     for batch_dir in pending:

@@ -40,8 +40,23 @@ def test_each_client_talks_to_its_own_host() -> None:
 
 def test_futures_client_does_not_inherit_spot_endpoints() -> None:
     # A spot path sent to the futures host is a 404 at run time, not a type error.
-    assert not hasattr(BinanceFuturesClient, "klines")
     assert not hasattr(BinanceFuturesClient, "ticker_24h")
+    assert BinanceFuturesClient.klines is not BinanceClient.klines
+
+
+def test_futures_klines_request(client: RecordingFutures) -> None:
+    client.klines("BTCUSDT", "1h", start_time=START_MS, limit=1000)
+    client.klines("BTCUSDT", "1h", end_time=START_MS)
+    assert client.requests == [
+        (
+            "/fapi/v1/klines",
+            {"symbol": "BTCUSDT", "interval": "1h", "limit": 1000, "startTime": START_MS},
+        ),
+        (
+            "/fapi/v1/klines",
+            {"symbol": "BTCUSDT", "interval": "1h", "limit": 1000, "endTime": START_MS},
+        ),
+    ]
 
 
 def test_funding_rate_request(client: RecordingFutures) -> None:

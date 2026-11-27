@@ -99,8 +99,8 @@ def test_no_batch_up_to_until_is_an_error(klines_root: Path) -> None:
 
 
 def test_every_dataset_has_fields_and_the_baseline_relation_name() -> None:
-    assert set(lzf.FIELDS) == {d.name for d in datasets.DATASETS}
-    names = {lzf.relation_name(d.table) for d in datasets.DATASETS}
+    assert set(lzf.FIELDS) == {d.name for d in datasets.BASELINE_DATASETS}
+    names = {lzf.relation_name(d.table) for d in datasets.BASELINE_DATASETS}
     assert "binance_spot_klines_1h" in names and "binance_futures_funding_rate" in names
 
 

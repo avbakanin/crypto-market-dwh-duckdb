@@ -1,0 +1,126 @@
+version: 2
+
+models:
+  - name: int_um__universe_daily
+    description: >
+      Point-in-time universe of USD-M perpetuals: per day, every eligible contract with its
+      quote turnover over D-31 .. D-2 and its rank; members are the top um_universe_size.
+      ingestion/universe.py reads it to choose what to extract.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [universe_date, symbol]
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [universe_date, turnover_rank]
+    columns:
+      - name: turnover_30d
+        data_tests: [not_null]
+      - name: is_member
+        data_tests: [not_null]
+
+  - name: int_um__klines_1h
+    description: >
+      USD-M hourly candles of the universe: archive where it has the hour, API after.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, open_time_ms]
+    columns:
+      - name: source
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [archive, api]
+
+  - name: int_um__funding_rate
+    description: >
+      USD-M funding settlements of the universe: archive (to the last full month), API after.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [contract_symbol, funding_hour_ms]
+
+  - name: int_um__metrics_1h
+    description: >
+      USD-M hourly open interest and long/short ratios of the universe: archive where it
+      has the hour, API after.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [contract_symbol, snapshot_time_ms]
+
+unit_tests:
+  - name: universe_ranks_by_the_past_only
+    description: >
+      Ranks on day D use the 30 days D-31 .. D-2 only. BUSDT turns over 1e9 on day 30: on
+      day 31 (window days 0..29) AUSDT still ranks first; on day 32 BUSDT leads alone
+      (AUSDT has no day 30). A pegged contract, an excluded index and a TradFi contract
+      never rank. A mutant
+      whose window reaches D-1 or D ranks BUSDT first on day 31 and fails.
+    model: int_um__universe_daily
+    overrides:
+      vars:
+        um_universe_size: 1
+    given:
+      - input: ref('stg_binance__um_archive_klines_1d')
+        format: sql
+        rows: |
+          select
+              s.symbol,
+              (timestamptz '2026-01-01 00:00:00+00' + to_days(i::integer)) as open_time,
+              (timestamptz '2026-01-01 23:59:59.999+00' + to_days(i::integer)) as close_time,
+              s.price::decimal(38, 8) as open_price,
+              s.price::decimal(38, 8) as high_price,
+              s.price::decimal(38, 8) as low_price,
+              s.price::decimal(38, 8) as close_price,
+              1::decimal(38, 8) as base_volume,
+              (case when s.symbol = 'BUSDT' and i = 30 then 1e9 else s.volume end)::decimal(38, 8)
+                  as quote_volume,
+              10::bigint as trade_count,
+              0::decimal(38, 8) as taker_buy_base_volume,
+              0::decimal(38, 8) as taker_buy_quote_volume,
+              epoch_ms(timestamptz '2026-01-01 00:00:00+00') + i * 86400000 as open_time_ms,
+              epoch_ms(timestamptz '2026-01-01 00:00:00+00') + i * 86400000 + 86399999
+                  as close_time_ms,
+              '20261127T000000Z' as _batch_id,
+              timestamptz '2026-11-27 00:00:00+00' as _loaded_at
+          from (values
+              ('AUSDT', 5.0, 100, 30),
+              ('BUSDT', 5.0, 50, 31),
+              ('CUSDT', 1.0, 1e6, 31),
+              ('DEFIUSDT', 5.0, 1e6, 31),
+              ('XAUUSDT', 5.0, 1e6, 31)
+          ) as s(symbol, price, volume, days),
+          range(31) as r(i)
+          where i < s.days
+      - input: ref('um_universe_exclusions')
+        rows:
+          - {symbol: DEFIUSDT, reason: index}
+      - input: ref('stg_binance__um_contracts')
+        rows:
+          - {contract_symbol: XAUUSDT, contract_type: TRADIFI_PERPETUAL, underlying_type: COMMODITY}
+          - {contract_symbol: AUSDT, contract_type: PERPETUAL, underlying_type: COIN}
+    expect:
+      rows:
+        - {universe_date: 2026-02-01, symbol: AUSDT, turnover_rank: 1, is_member: true}
+        - {universe_date: 2026-02-01, symbol: BUSDT, turnover_rank: 2, is_member: false}
+        - {universe_date: 2026-02-02, symbol: BUSDT, turnover_rank: 1, is_member: true}
+
+  - name: stitched_klines_prefer_the_archive
+    description: The archive's hour wins; the API fills only the hours after it.
+    model: int_um__klines_1h
+    given:
+      - input: ref('stg_binance__um_archive_klines_1h')
+        rows:
+          - {symbol: BTCUSDT, open_time_ms: 0, close_price: 1}
+      - input: ref('stg_binance__um_api_klines_1h')
+        rows:
+          - {symbol: BTCUSDT, open_time_ms: 0, close_price: 2}
+          - {symbol: BTCUSDT, open_time_ms: 3600000, close_price: 3}
+          - {symbol: ETHUSDT, open_time_ms: 0, close_price: 4}
+    expect:
+      rows:
+        - {symbol: BTCUSDT, open_time_ms: 0, close_price: 1, source: archive}
+        - {symbol: BTCUSDT, open_time_ms: 3600000, close_price: 3, source: api}
+        - {symbol: ETHUSDT, open_time_ms: 0, close_price: 4, source: api}

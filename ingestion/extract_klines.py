@@ -81,10 +81,10 @@ def last_closed_open_ms(now_ms: int) -> int:
     return (now_ms - INTERVAL_MS) // INTERVAL_MS * INTERVAL_MS
 
 
-def start_ms_for(mark: int | None, now_ms: int) -> int:
+def start_ms_for(mark: int | None, now_ms: int, history_days: int = HISTORY_DAYS) -> int:
     """First open_time to request: the history window for a new symbol, else the newest
     OVERLAP_CANDLES already extracted; never earlier than the history window."""
-    window_start = now_ms - HISTORY_DAYS * DAY_MS
+    window_start = now_ms - history_days * DAY_MS
     if mark is None:
         return window_start
     return max(window_start, mark - (OVERLAP_CANDLES - 1) * INTERVAL_MS)
@@ -119,7 +119,11 @@ def ms_to_utc(ms: int) -> datetime:
 
 
 def extract_batch(
-    client: KlinesSource, symbols: list[str], now_ms: int, output_dir: Path = OUTPUT_DIR
+    client: KlinesSource,
+    symbols: list[str],
+    now_ms: int,
+    output_dir: Path = OUTPUT_DIR,
+    history_days: int = HISTORY_DAYS,
 ) -> Path | None:
     """Extract what is new since each symbol's high-water mark into a new batch directory.
 
@@ -137,7 +141,7 @@ def extract_batch(
         if mark is not None and mark >= newest_closed:
             print(f"{prefix} up to date")  # no new closed candle can exist: no request
             continue
-        start_ms = start_ms_for(mark, now_ms)
+        start_ms = start_ms_for(mark, now_ms, history_days)
         new_from = start_ms if mark is None else max(start_ms, mark + INTERVAL_MS)
         klines = drop_unclosed(fetch_history(client, symbol, start_ms, now_ms), now_ms)
         if not any(k[0] >= new_from for k in klines):

@@ -14,6 +14,27 @@ def test_datasets_are_loaded_klines_first() -> None:
         "top_account_ratio",
         "top_position_ratio",
         "global_account_ratio",
+        "um_archive_klines_1d",
+        "um_archive_klines_1h",
+        "um_archive_funding_rate",
+        "um_archive_metrics_1h",
+        "um_api_klines_1h",
+        "um_api_funding_rate",
+        "um_api_open_interest",
+        "um_api_top_account_ratio",
+        "um_api_top_position_ratio",
+        "um_api_global_account_ratio",
+        "um_contracts",
+    ]
+
+
+def test_only_archive_datasets_are_incremental() -> None:
+    # Their staging reads batches newer than its newest: the loader guards the order.
+    assert [d.name for d in DATASETS if d.incremental] == [
+        "um_archive_klines_1d",
+        "um_archive_klines_1h",
+        "um_archive_funding_rate",
+        "um_archive_metrics_1h",
     ]
 
 
@@ -28,4 +49,15 @@ def test_landing_zones_keep_their_directories() -> None:
         "top_account_ratio": "top_account_ratio_1h",
         "top_position_ratio": "top_position_ratio_1h",
         "global_account_ratio": "global_account_ratio_1h",
+        "um_archive_klines_1d": "archive_um_klines_1d",
+        "um_archive_klines_1h": "archive_um_klines_1h",
+        "um_archive_funding_rate": "archive_um_funding_rate",
+        "um_archive_metrics_1h": "archive_um_metrics_1h",
+        "um_api_klines_1h": "um_api_klines_1h",
+        "um_api_funding_rate": "um_api_funding_rate",
+        "um_api_open_interest": "um_api_open_interest_1h",
+        "um_api_top_account_ratio": "um_api_top_account_ratio_1h",
+        "um_api_top_position_ratio": "um_api_top_position_ratio_1h",
+        "um_api_global_account_ratio": "um_api_global_account_ratio_1h",
+        "um_contracts": "um_contracts",
     }

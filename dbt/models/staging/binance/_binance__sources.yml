@@ -64,3 +64,69 @@ sources:
           Hourly long/short ratio of all traders, by accounts. Served ~30 days.
         config:
           loaded_at_field: "epoch_ms((payload->>'timestamp')::bigint)::timestamptz"
+
+      # USD-M universe, history from data.binance.vision (ingestion/extract_archive.py):
+      # payload is the CSV row keyed by the file's column names, values as strings. A day
+      # is published the morning after (06:40-09:15 UTC), a month days into the next one.
+      - name: binance_um_archive_klines_1d
+        description: Daily candles (last price) of every *USDT perpetual, delisted ones too.
+        config:
+          loaded_at_field: "epoch_ms((payload->>'open_time')::bigint)::timestamptz + interval 1 day"
+          freshness:
+            warn_after: {count: 38, period: hour}
+            error_after: {count: 60, period: hour}
+      - name: binance_um_archive_klines_1h
+        description: Hourly candles (last price, taker volume) of the universe's contracts.
+        config:
+          loaded_at_field: "epoch_ms((payload->>'open_time')::bigint)::timestamptz + interval 1 hour"
+          freshness:
+            warn_after: {count: 38, period: hour}
+            error_after: {count: 60, period: hour}
+      - name: binance_um_archive_funding_rate
+        description: Funding settlements of the universe's contracts, monthly files only.
+        config:
+          loaded_at_field: "epoch_ms((payload->>'calc_time')::bigint)::timestamptz"
+          freshness:
+            warn_after: {count: 34, period: day}
+            error_after: {count: 45, period: day}
+      - name: binance_um_archive_metrics_1h
+        description: >
+          Open interest and long/short ratios of the universe's contracts: the minute-00
+          rows of the 5-minute daily files. Column names are wrong (source note 130).
+        config:
+          loaded_at_field: "(payload->>'create_time')::timestamp at time zone 'UTC'"
+          freshness:
+            warn_after: {count: 38, period: hour}
+            error_after: {count: 60, period: hour}
+
+      # USD-M universe, the API tail (ingestion/extract_um_api.py): the members of the
+      # newest universe day, the hours the archive has not published yet.
+      - name: binance_um_api_klines_1h
+        description: Futures 1h klines (last price), the spot array layout.
+        config:
+          loaded_at_field: "epoch_ms((payload->>0)::bigint)::timestamptz + interval 1 hour"
+      - name: binance_um_api_funding_rate
+        description: Funding settlements; the archive has them up to the last full month.
+        config:
+          loaded_at_field: "epoch_ms((payload->>'fundingTime')::bigint)::timestamptz"
+          freshness:
+            warn_after: {count: 9, period: hour}
+            error_after: {count: 26, period: hour}
+      - name: binance_um_api_open_interest_1h
+        config:
+          loaded_at_field: "epoch_ms((payload->>'timestamp')::bigint)::timestamptz"
+      - name: binance_um_api_top_account_ratio_1h
+        config:
+          loaded_at_field: "epoch_ms((payload->>'timestamp')::bigint)::timestamptz"
+      - name: binance_um_api_top_position_ratio_1h
+        config:
+          loaded_at_field: "epoch_ms((payload->>'timestamp')::bigint)::timestamptz"
+      - name: binance_um_api_global_account_ratio_1h
+        config:
+          loaded_at_field: "epoch_ms((payload->>'timestamp')::bigint)::timestamptz"
+      - name: binance_um_contracts
+        description: >
+          exchangeInfo's USDT contracts (one record each), a batch when the list changes:
+          no data time, so no freshness.
+        config:
+          freshness: null
