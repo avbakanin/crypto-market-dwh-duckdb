@@ -5,6 +5,7 @@
 !dags/
 !dashboard/
 !analysis/
+!research/
 !dbt/
 !config/
 !tests/
@@ -14,6 +15,7 @@
 !requirements-dbt.txt
 !requirements-dev.txt
 !requirements-dashboard.txt
+!requirements-research.txt
 
 # Generated files and secrets inside the allowed directories stay out too.
 **/__pycache__/
