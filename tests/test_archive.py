@@ -15,6 +15,7 @@ from ingestion import extract_archive as ea
 from ingestion import load_raw
 from ingestion.batches import read_manifest
 from ingestion.binance_archive import (
+    BOOK_DEPTH_COLUMNS,
     FUNDING_COLUMNS,
     KLINE_COLUMNS,
     METRICS_COLUMNS,
@@ -31,7 +32,12 @@ from ingestion.binance_archive import (
     period_of,
     verify_checksum,
 )
-from ingestion.datasets import UM_ARCHIVE_KLINES_1H, UM_ARCHIVE_METRICS_1H
+from ingestion.datasets import (
+    SPOT_ARCHIVE_KLINES_1D,
+    UM_ARCHIVE_BOOK_DEPTH_1H,
+    UM_ARCHIVE_KLINES_1H,
+    UM_ARCHIVE_METRICS_1H,
+)
 from ingestion.warehouse import connect
 
 TODAY = date(2026, 11, 27)
@@ -268,7 +274,15 @@ def test_plan_ignores_days_before_the_archive_begins() -> None:
 @pytest.fixture
 def landing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Archive datasets with their landing zones below tmp_path."""
-    for name in ("UM_KLINES_1D", "UM_KLINES_1H", "UM_FUNDING", "UM_METRICS"):
+    for name in (
+        "UM_KLINES_1D",
+        "UM_KLINES_1H",
+        "UM_FUNDING",
+        "UM_METRICS",
+        "UM_PREMIUM_INDEX_1H",
+        "SPOT_KLINES_1D",
+        "UM_BOOK_DEPTH",
+    ):
         original = getattr(ea, name)
         monkeypatch.setattr(ea, name, _relocated(original, tmp_path))
     return tmp_path
@@ -452,6 +466,9 @@ def test_hourly_klines_and_funding_follow_the_1d_days_of_ranked_contracts(landin
         "BTCUSDT": {date(2026, 11, 20)}
     }
     assert ea.wanted_days(ea.UM_FUNDING, archive, [], TODAY, False) == {}
+    assert ea.wanted_days(ea.UM_PREMIUM_INDEX_1H, archive, ranks, TODAY, False) == {
+        "BTCUSDT": {date(2026, 11, 20)}
+    }
 
 
 def test_metric_columns_are_the_files() -> None:
@@ -467,3 +484,151 @@ def test_metric_columns_are_the_files() -> None:
     assert UM_METRICS.key("BTCUSDT", "2021-05-01") == (
         "data/futures/um/daily/metrics/BTCUSDT/BTCUSDT-metrics-2021-05-01.zip"
     )
+    assert ea.SPOT_KLINES_1D.key("PEPEUSDT", "2025-01") == (
+        "data/spot/monthly/klines/PEPEUSDT/1d/PEPEUSDT-1d-2025-01.zip"
+    )
+
+
+# --- spot klines ----------------------------------------------------------------------
+
+DAY_MS = 86_400_000
+
+
+def test_spot_times_in_microseconds_read_as_milliseconds() -> None:
+    # Note 143: spot files stamp microseconds from 2025-01-01.
+    dataset = ea.SPOT_KLINES_1D
+    micro = kline_row(ms("2025-01-01") * 1000, step_ms=DAY_MS * 1000)
+    milli = kline_row(ms("2024-12-31"), step_ms=DAY_MS)
+    assert dataset.record_ms(dict(zip(KLINE_COLUMNS, micro, strict=True))) == ms("2025-01-01")
+    assert dataset.record_ms(dict(zip(KLINE_COLUMNS, milli, strict=True))) == ms("2024-12-31")
+
+
+def test_spot_candidates_strip_the_multiplier_prefix() -> None:
+    assert ea.spot_candidates("BTCUSDT") == ["BTCUSDT"]
+    assert ea.spot_candidates("1000PEPEUSDT") == ["1000PEPEUSDT", "PEPEUSDT"]
+    assert ea.spot_candidates("1000000MOGUSDT") == ["1000000MOGUSDT", "MOGUSDT"]
+    assert ea.spot_candidates("1MBABYDOGEUSDT") == ["1MBABYDOGEUSDT", "BABYDOGEUSDT"]
+    assert ea.spot_candidates("1000USDT") == ["1000USDT"]  # nothing left but the quote
+
+
+def _contract_days(archive: FakeArchive, days: dict[str, list[str]], as_of: str) -> None:
+    requests = []
+    for symbol, periods in days.items():
+        for period in periods:
+            archive.put(ea.UM_KLINES_1D, symbol, period, [kline_row(ms(period), step_ms=DAY_MS)])
+            requests.append(ea.Request(symbol, period))
+    files, _ = ea.download(archive, ea.UM_KLINES_1D, requests)
+    ea.write_batch(ea.UM_KLINES_1D, files, ms(as_of))
+
+
+def test_spot_pairs_follow_ranked_contracts_on_days_the_archive_lists(landing: Path) -> None:
+    archive = FakeArchive()
+    contracts = {
+        "1000PEPEUSDT": ["2026-11-19", "2026-11-20"],
+        "BTCUSDT": ["2026-11-20"],
+        "NOSPOTUSDT": ["2026-11-20"],
+        "UNRANKEDUSDT": ["2026-11-20"],
+    }
+    _contract_days(archive, contracts, "2026-11-25")
+    spot = ea.SPOT_KLINES_1D
+    archive.put(spot, "PEPEUSDT", "2026-11-20", [kline_row(ms("2026-11-20"), step_ms=DAY_MS)])
+    archive.put(spot, "BTCUSDT", "2026-11-25", [])  # listed, but not on the contract's days
+    archive.put(spot, "UNRANKEDUSDT", "2026-11-20", [])
+    ranks = [(date(2026, 11, 21), s, 1) for s in ("1000PEPEUSDT", "BTCUSDT", "NOSPOTUSDT")]
+    wanted = ea.wanted_days(spot, archive, ranks, TODAY, backfill=False)
+    assert wanted == {"PEPEUSDT": {date(2026, 11, 20)}}
+
+    files, _ = ea.download(archive, spot, [ea.Request("PEPEUSDT", "2026-11-20")])
+    ea.write_batch(spot, files, ms("2026-11-27"))
+    _contract_days(archive, {"1000PEPEUSDT": ["2026-11-21"]}, "2026-11-26")
+    # A known pair: the contract's days from the pair's first covered one, no listing.
+    wanted = ea.wanted_days(spot, archive, ranks, TODAY, backfill=False)
+    assert wanted["PEPEUSDT"] == {date(2026, 11, 20), date(2026, 11, 21)}
+
+
+def test_spot_batch_of_milli_and_microseconds_loads_reconciled(
+    landing: Path, tmp_path: Path
+) -> None:
+    dataset = ea.SPOT_KLINES_1D
+    archive = FakeArchive()
+    archive.put(dataset, "PEPEUSDT", "2024-12", [kline_row(ms("2024-12-31"), step_ms=DAY_MS)])
+    micro = kline_row(ms("2025-01-01") * 1000, step_ms=DAY_MS * 1000)
+    archive.put(dataset, "PEPEUSDT", "2025-01-01", [micro, micro], header=False)
+    files, _ = ea.download(
+        archive, dataset, [ea.Request("PEPEUSDT", "2024-12"), ea.Request("PEPEUSDT", "2025-01-01")]
+    )
+    batch_dir = ea.write_batch(dataset, files, ms("2026-11-27"))
+    assert batch_dir is not None
+    manifest = read_manifest(batch_dir)
+    stats = manifest["symbols"]["PEPEUSDT"]
+    assert (stats["rows"], stats["duplicates"], stats["gaps"]) == (3, 1, 0)
+    assert (stats["first_ms"], stats["last_ms"]) == (ms("2024-12-31"), ms("2025-01-01"))
+    raw = dataclasses.replace(SPOT_ARCHIVE_KLINES_1D, landing_dir=dataset.output_dir)
+    with connect(tmp_path / "w.duckdb") as con:
+        load_raw.ensure_raw_objects(con)
+        assert load_raw.load_batch(con, raw, batch_dir, manifest) == []
+
+
+# --- book depth -----------------------------------------------------------------------
+
+BANDS = ("-5.00", "-4.00", "-3.00", "-2.00", "-1.00", "-0.20", "0.20", "1.00", "2.00", "3.00",
+         "4.00", "5.00")  # fmt: skip
+
+
+def depth_rows(stamp: str, bands: tuple[str, ...] = BANDS) -> list[list[str]]:
+    return [[stamp, band, "10.0", "1000.0"] for band in bands]
+
+
+def test_book_depth_keeps_each_hours_first_snapshot(landing: Path, tmp_path: Path) -> None:
+    dataset = ea.UM_BOOK_DEPTH
+    assert dataset.columns == BOOK_DEPTH_COLUMNS
+    archive = FakeArchive()
+    rows = (
+        depth_rows("2026-11-27 00:00:30")
+        + depth_rows("2026-11-27 00:00:02")  # earlier, though later in the file
+        + depth_rows("2026-11-27 01:02:00")  # the hour's first, 2 minutes late
+        + depth_rows("2026-11-27 01:30:00", BANDS[:11])  # a band short
+        # the format before 2026: 10 bands, no +-0.20, written "-1"
+        + depth_rows("2026-11-27 02:00:05", ("-5", "-4", "-3", "-2", "-1", "1", "2", "3", "4", "5"))
+    )
+    archive.put(dataset, "BTCUSDT", "2026-11-27", rows)
+    files, _ = ea.download(archive, dataset, [ea.Request("BTCUSDT", "2026-11-27")])
+    kept = sorted({r["timestamp"] for r in files[0].records})
+    assert kept == ["2026-11-27 00:00:02", "2026-11-27 01:02:00", "2026-11-27 02:00:05"]
+    assert len(files[0].records) == 34
+    batch_dir = ea.write_batch(dataset, files, ms("2026-11-28"))
+    assert batch_dir is not None
+    manifest = read_manifest(batch_dir)
+    assert manifest["symbols"]["BTCUSDT"] == {
+        "rows": 34,
+        "duplicates": 0,
+        "files": 1,
+        "first_ms": ms("2026-11-27"),
+        "last_ms": ms("2026-11-27 02:00:00"),
+        "gaps": 0,
+        "snapshots": 5,
+        "odd_snapshots": 1,
+        "missing_hours": 21,
+        "late_hours": 1,
+    }
+    raw = dataclasses.replace(UM_ARCHIVE_BOOK_DEPTH_1H, landing_dir=dataset.output_dir)
+    with connect(tmp_path / "w.duckdb") as con:
+        load_raw.ensure_raw_objects(con)
+        assert load_raw.load_batch(con, raw, batch_dir, manifest) == []
+        assert con.execute(f"select count(*) from {raw.table}").fetchall() == [(34,)]
+
+
+def test_book_depth_duplicate_rows_reconcile_with_the_loader(landing: Path, tmp_path: Path) -> None:
+    dataset = ea.UM_BOOK_DEPTH
+    archive = FakeArchive()
+    archive.put(dataset, "BTCUSDT", "2026-11-27", depth_rows("2026-11-27 00:00:02") * 2)
+    files, _ = ea.download(archive, dataset, [ea.Request("BTCUSDT", "2026-11-27")])
+    batch_dir = ea.write_batch(dataset, files, ms("2026-11-28"))
+    assert batch_dir is not None
+    manifest = read_manifest(batch_dir)
+    assert manifest["symbols"]["BTCUSDT"]["duplicates"] == 12
+    assert manifest["symbols"]["BTCUSDT"]["odd_snapshots"] == 1
+    raw = dataclasses.replace(UM_ARCHIVE_BOOK_DEPTH_1H, landing_dir=dataset.output_dir)
+    with connect(tmp_path / "w.duckdb") as con:
+        load_raw.ensure_raw_objects(con)
+        assert load_raw.load_batch(con, raw, batch_dir, manifest) == []

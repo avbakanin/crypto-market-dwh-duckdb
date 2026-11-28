@@ -11,6 +11,11 @@ What is wanted, per dataset (binance_archive.py has the datasets):
 - archive_um_klines_1h, archive_um_funding_rate: contracts ever ranked within
   universe.DOWNLOAD_RANK, on the days the 1d klines have them.
 - archive_um_metrics_1h: the days universe.metrics_days selects.
+- archive_um_premium_index_1h: as the 1h klines.
+- archive_spot_klines_1d: the spot pairs that may trade a ranked contract's coin
+  (spot_candidates; dbt keeps the one whose price matches), on the contract's 1d days that
+  the pair has in the archive.
+- archive_um_book_depth_1h: as the metrics, from 2023 (the archive's first book depth).
 What is there: the days the manifests' source files cover. A missing day is asked for again
 only within RETRY_DAYS (all of them with --backfill, or for a contract with nothing yet),
 so a file the archive never had costs a request a run for a month, not forever.
@@ -44,10 +49,14 @@ from ingestion.binance_archive import (
     DAY_MS,
     HOUR_MS,
     KLINE_COLUMNS,
+    SPOT_KLINES_1D,
+    SPOT_ROOT,
+    UM_BOOK_DEPTH,
     UM_FUNDING,
     UM_KLINES_1D,
     UM_KLINES_1H,
     UM_METRICS,
+    UM_PREMIUM_INDEX_1H,
     UM_ROOT,
     ArchiveClient,
     ArchiveDataset,
@@ -67,6 +76,9 @@ ALIVE_DAYS = 15  # a contract with no 1d candle for this long is taken as delist
 WORKERS = 16  # parallel downloads; a backfill passes --workers
 PROBE_SYMBOL = "BTCUSDT"
 QUOTE = "USDT"
+# Prefixes of contracts quoted per N coins, longest first (1000000MOGUSDT is not 1000...).
+MULTIPLIER_PREFIXES = ("1000000", "1000", "1M")
+BOOK_DEPTH_STATS = ("snapshots", "odd_snapshots", "missing_hours", "late_hours")
 
 
 def month_of(day: date) -> str:
@@ -81,6 +93,18 @@ def shift_month(month: str, delta: int) -> str:
 def is_perpetual(symbol: str) -> bool:
     """A *USDT perpetual (dated contracts have "_"), with a name the loader accepts."""
     return symbol.endswith(QUOTE) and SYMBOL_PATTERN.fullmatch(symbol) is not None
+
+
+def spot_candidates(contract: str) -> list[str]:
+    """Spot pairs that may trade a contract's coin: the contract's own symbol, and for one
+    quoted per 1000 or per million coins the symbol without the prefix (1000PEPEUSDT ->
+    PEPEUSDT; 1000SATSUSDT trades on spot under its prefixed name)."""
+    candidates = [contract]
+    for prefix in MULTIPLIER_PREFIXES:
+        if contract.startswith(prefix) and len(contract) > len(prefix) + len(QUOTE):
+            candidates.append(contract[len(prefix) :])
+            break
+    return candidates
 
 
 def covered_days(root: Path) -> dict[str, set[date]]:
@@ -227,11 +251,10 @@ def symbol_stats(dataset: ArchiveDataset, files: list[ArchiveFile]) -> dict[str,
     loader reconciles them), the time span, gaps on the grid, idle candles (count = 0, a
     delisted contract's tail, note 132) and the 5-minute grid of metrics (note 131)."""
     records = [r for f in files for r in f.records]
-    keys = [dataset.grid_key(r) for r in records]
-    unique = sorted(set(keys))
+    unique = sorted({dataset.grid_key(r) for r in records})
     stats = {
         "rows": len(records),
-        "duplicates": len(keys) - len(unique),
+        "duplicates": len(records) - len({dataset.row_key(r) for r in records}),
         "files": len(files),
         "first_ms": unique[0],
         "last_ms": unique[-1],
@@ -245,6 +268,9 @@ def symbol_stats(dataset: ArchiveDataset, files: list[ArchiveFile]) -> dict[str,
         for name in ("rows_5m", "duplicates_5m", "unordered_5m", "missing_5m"):
             stats[name] = sum(f.stats[name] for f in files)
         stats["missing_hours"] = 24 * days - len({k // HOUR_MS for k in unique})
+    if dataset.first_snapshot_per_hour:
+        for name in BOOK_DEPTH_STATS:
+            stats[name] = sum(f.stats[name] for f in files)
     return stats
 
 
@@ -269,7 +295,7 @@ def listed_days(
     months after the newest monthly one (none for a contract long gone)."""
     path = dataset.path.format(symbol=symbol)
     stem = dataset.stem.format(symbol=symbol)
-    keys, _ = source.list_prefix(f"{UM_ROOT}/monthly/{path}/")
+    keys, _ = source.list_prefix(f"{dataset.root}/monthly/{path}/")
     months = sorted(period_of(k.rsplit("/", 1)[1]) for k in keys if k.endswith(".zip"))
     days = {d for m in months for d in period_days(m)}
     current = month_of(today)
@@ -281,7 +307,7 @@ def listed_days(
     else:
         daily_months = []
     for month in daily_months:
-        keys, _ = source.list_prefix(f"{UM_ROOT}/daily/{path}/{stem}-{month}")
+        keys, _ = source.list_prefix(f"{dataset.root}/daily/{path}/{stem}-{month}")
         days |= {
             date.fromisoformat(period_of(k.rsplit("/", 1)[1])) for k in keys if k.endswith(".zip")
         }
@@ -297,6 +323,45 @@ def discover_symbols(source: ArchiveSource, backfill: bool) -> list[str]:
         _, dirs = source.list_prefix(f"{UM_ROOT}/{root}/klines/")
         names |= {d.rstrip("/").rsplit("/", 1)[1] for d in dirs}
     return sorted(n for n in names if is_perpetual(n))
+
+
+def discover_spot_pairs(source: ArchiveSource, backfill: bool) -> set[str]:
+    """Spot pairs with a klines directory (daily, plus monthly with --backfill)."""
+    roots = ["daily", "monthly"] if backfill else ["daily"]
+    names: set[str] = set()
+    for root in roots:
+        _, dirs = source.list_prefix(f"{SPOT_ROOT}/{root}/klines/")
+        names |= {d.rstrip("/").rsplit("/", 1)[1] for d in dirs}
+    return names
+
+
+def spot_wanted_days(
+    source: ArchiveSource, ranks: list[Rank], today: date, backfill: bool
+) -> dict[str, set[date]]:
+    """Per spot pair: the 1d days of the ranked contracts it may trade, limited to the days
+    the archive lists for a pair new to the landing zone (every pair with --backfill), and
+    to the days from its first covered one for a known pair: a pair listed after its
+    contract would otherwise ask for the contract's older days on every run."""
+    contract_days = covered_days(UM_KLINES_1D.output_dir)
+    pairs = discover_spot_pairs(source, backfill)
+    wanted: dict[str, set[date]] = defaultdict(set)
+    for contract in sorted(ever_ranked(ranks)):
+        for pair in spot_candidates(contract):
+            if pair in pairs and contract in contract_days and is_perpetual(pair):
+                wanted[pair] |= contract_days[contract]
+    covered = covered_days(SPOT_KLINES_1D.output_dir)
+    to_list = [s for s in wanted if backfill or not covered.get(s)]
+    listed = parallel_map(lambda s: listed_days(source, SPOT_KLINES_1D, s, today), to_list)
+    result: dict[str, set[date]] = {}
+    for pair, days in wanted.items():
+        if pair in listed:
+            days = days & listed[pair]
+        else:
+            first = min(covered[pair])
+            days = {d for d in days if d >= first}
+        if days:
+            result[pair] = days
+    return result
 
 
 def parallel_map(func: Callable[[str], set[date]], items: Iterable[str]) -> dict[str, set[date]]:
@@ -324,11 +389,13 @@ def wanted_days(
             if last >= today - timedelta(days=ALIVE_DAYS):
                 wanted[symbol] = {last + timedelta(days=i) for i in range(1, (today - last).days)}
         return wanted
-    if dataset in (UM_KLINES_1H, UM_FUNDING):
+    if dataset in (UM_KLINES_1H, UM_FUNDING, UM_PREMIUM_INDEX_1H):
         listed = covered_days(UM_KLINES_1D.output_dir)
         return {s: listed[s] for s in ever_ranked(ranks) if s in listed}
-    if dataset is UM_METRICS:
+    if dataset in (UM_METRICS, UM_BOOK_DEPTH):
         return metrics_days(ranks, dataset.first_day, today - timedelta(days=1))
+    if dataset is SPOT_KLINES_1D:
+        return spot_wanted_days(source, ranks, today, backfill)
     raise ValueError(f"Unknown dataset {dataset.name}")
 
 

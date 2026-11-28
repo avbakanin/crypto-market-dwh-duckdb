@@ -1,0 +1,97 @@
+version: 2
+
+# Market structure from data.binance.vision and the API tail (source note 143).
+models:
+  - name: stg_binance__um_archive_premium_index_1h
+    description: >
+      Hourly premium index candles of the universe's contracts from the archive, one row per
+      (symbol, open_time). Incremental.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, open_time_ms]
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "close_time_ms = open_time_ms + 3599999 and epoch_ms(open_time) = open_time_ms"
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: >
+              low_premium <= least(open_premium, close_premium)
+              and high_premium >= greatest(open_premium, close_premium)
+              and sample_count between 0 and 720
+          config:
+            severity: warn
+            store_failures_as: table
+            alias: dq_um_premium_insane
+    columns:
+      - name: close_premium
+        data_tests: [not_null]
+
+  - name: stg_binance__um_api_premium_index_1h
+    description: Hourly premium index candles of the universe from the API (the archive's tail).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, open_time_ms]
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "close_time_ms = open_time_ms + 3599999"
+
+  - name: stg_binance__spot_archive_klines_1d
+    description: >
+      Daily spot candles of the pairs that may trade the universe's coins, one row per
+      (spot pair, open_time); times in ms (the files' microseconds from 2025 divided).
+      Incremental.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, open_time_ms]
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "open_time_ms % 86400000 = 0 and epoch_ms(open_time) = open_time_ms"
+      # Warn: a pair's last day before delisting closes at the delisting (often 03:00 UTC;
+      # KLAYUSDT 2024-10-30 even before it opens): 105 candles on 2026-11-28, source note 143.
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "close_time_ms = open_time_ms + 86399999"
+          config:
+            severity: warn
+            store_failures_as: table
+            alias: dq_spot_klines_1d_short_day
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: >
+              low_price <= least(open_price, close_price)
+              and high_price >= greatest(open_price, close_price)
+              and quote_volume >= 0 and trade_count >= 0
+              and taker_buy_quote_volume between 0 and quote_volume
+          config:
+            severity: warn
+            store_failures_as: table
+            alias: dq_spot_klines_1d_insane
+    columns:
+      - name: close_price
+        data_tests: [not_null]
+
+  - name: stg_binance__um_archive_book_depth_1h
+    description: >
+      Order book depth of the universe's contracts: each hour's first snapshot, a row per
+      band (percentage from the mid: negative bids, positive asks), cumulative depth and
+      USDT notional. Incremental.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [contract_symbol, snapshot_hour_ms, percentage]
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "percentage in (-5, -4, -3, -2, -1, -0.2, 0.2, 1, 2, 3, 4, 5)"
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "depth >= 0 and notional_usdt >= 0"
+          config:
+            severity: warn
+            store_failures_as: table
+            alias: dq_um_book_depth_insane
+    columns:
+      - name: notional_usdt
+        data_tests: [not_null]

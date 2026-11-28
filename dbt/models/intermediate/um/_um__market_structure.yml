@@ -1,0 +1,141 @@
+version: 2
+
+# Market structure per contract (source note 143): inputs of features, none used yet.
+models:
+  - name: int_um__premium_index_1h
+    description: >
+      USD-M hourly premium index of the universe: archive where it has the hour, API after.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, open_time_ms]
+    columns:
+      - name: source
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [archive, api]
+
+  - name: int_um__premium_daily
+    description: >
+      USD-M premium index per (contract, UTC day): mean of hourly closes, last close, range.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, trade_date]
+    columns:
+      - name: hours_present
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 24
+
+  - name: int_um__spot_daily
+    description: >
+      The spot pair of each USD-M contract's coin per UTC day (matched by price), its candle
+      per contract unit and the gap to the contract's close. Archive only (D-2 live).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [contract_symbol, trade_date]
+    columns:
+      - name: multiplier
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [1, 1000, 1000000]
+                quote: false
+
+  - name: int_um__book_depth_daily
+    description: >
+      USD-M order book depth per (contract, UTC day): medians of the hourly notional within
+      0.2 / 1 / 2 % of the mid per side, and the 1 % imbalance. Archive only (D-2 live).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [contract_symbol, trade_date]
+    columns:
+      - name: hours_present
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 24
+      - name: imbalance_1pct
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -1
+                max_value: 1
+
+unit_tests:
+  - name: premium_takes_the_archive_then_the_api
+    description: The archive's hour wins; the API fills the hours after.
+    model: int_um__premium_index_1h
+    given:
+      - input: ref('stg_binance__um_archive_premium_index_1h')
+        rows:
+          - {symbol: BTCUSDT, open_time_ms: 0, close_premium: 0.001}
+      - input: ref('stg_binance__um_api_premium_index_1h')
+        rows:
+          - {symbol: BTCUSDT, open_time_ms: 0, close_premium: 0.002}
+          - {symbol: BTCUSDT, open_time_ms: 3600000, close_premium: 0.003}
+    expect:
+      rows:
+        - {symbol: BTCUSDT, open_time_ms: 0, close_premium: 0.001, source: archive}
+        - {symbol: BTCUSDT, open_time_ms: 3600000, close_premium: 0.003, source: api}
+
+  - name: spot_pairs_match_contracts_by_price
+    description: >
+      1000PEPEUSDT maps to PEPEUSDT x 1000 (its spot close x 1000 equals the contract's);
+      BTCUSDT to BTCUSDT x 1; LUNAUSDT keeps its pair (median gap 0 over three days), but
+      its third day, a reused spot symbol at half the price, has price_matches false; a
+      spot pair of another coin (XUSDT, 3x off every day) maps to nothing. A mutant that
+      drops the multiplier maps no PEPE day and fails.
+    model: int_um__spot_daily
+    given:
+      - input: ref('stg_binance__um_archive_klines_1d')
+        rows:
+          - {symbol: 1000PEPEUSDT, open_time: "2026-01-01 00:00:00+00", close_price: 0.005, trade_count: 10}
+          - {symbol: BTCUSDT, open_time: "2026-01-01 00:00:00+00", close_price: 100, trade_count: 10}
+          - {symbol: LUNAUSDT, open_time: "2026-01-01 00:00:00+00", close_price: 2, trade_count: 10}
+          - {symbol: LUNAUSDT, open_time: "2026-01-02 00:00:00+00", close_price: 2, trade_count: 10}
+          - {symbol: LUNAUSDT, open_time: "2026-01-03 00:00:00+00", close_price: 2, trade_count: 10}
+          - {symbol: XUSDT, open_time: "2026-01-01 00:00:00+00", close_price: 3, trade_count: 10}
+      - input: ref('stg_binance__spot_archive_klines_1d')
+        rows:
+          - {symbol: PEPEUSDT, open_time: "2026-01-01 00:00:00+00", close_price: 0.000005, quote_volume: 50, taker_buy_quote_volume: 20, trade_count: 7}
+          - {symbol: BTCUSDT, open_time: "2026-01-01 00:00:00+00", close_price: 100, quote_volume: 60, taker_buy_quote_volume: 30, trade_count: 8}
+          - {symbol: LUNAUSDT, open_time: "2026-01-01 00:00:00+00", close_price: 2, quote_volume: 1, taker_buy_quote_volume: 1, trade_count: 1}
+          - {symbol: LUNAUSDT, open_time: "2026-01-02 00:00:00+00", close_price: 2, quote_volume: 1, taker_buy_quote_volume: 1, trade_count: 1}
+          - {symbol: LUNAUSDT, open_time: "2026-01-03 00:00:00+00", close_price: 1, quote_volume: 1, taker_buy_quote_volume: 1, trade_count: 1}
+          - {symbol: XUSDT, open_time: "2026-01-01 00:00:00+00", close_price: 1, quote_volume: 1, taker_buy_quote_volume: 1, trade_count: 1}
+    expect:
+      rows:
+        - {contract_symbol: 1000PEPEUSDT, trade_date: 2026-01-01, spot_symbol: PEPEUSDT, multiplier: 1000, spot_close: 0.005, spot_quote_volume: 50, price_matches: true}
+        - {contract_symbol: BTCUSDT, trade_date: 2026-01-01, spot_symbol: BTCUSDT, multiplier: 1, spot_close: 100, spot_quote_volume: 60, price_matches: true}
+        - {contract_symbol: LUNAUSDT, trade_date: 2026-01-01, spot_symbol: LUNAUSDT, multiplier: 1, spot_close: 2, spot_quote_volume: 1, price_matches: true}
+        - {contract_symbol: LUNAUSDT, trade_date: 2026-01-02, spot_symbol: LUNAUSDT, multiplier: 1, spot_close: 2, spot_quote_volume: 1, price_matches: true}
+        - {contract_symbol: LUNAUSDT, trade_date: 2026-01-03, spot_symbol: LUNAUSDT, multiplier: 1, spot_close: 1, spot_quote_volume: 1, price_matches: false}
+
+  - name: book_depth_takes_daily_medians_per_side
+    description: >
+      Three hourly snapshots of a day: medians per band and side; a snapshot of the next
+      UTC day stays out. Bids are the negative bands.
+    model: int_um__book_depth_daily
+    given:
+      - input: ref('stg_binance__um_archive_book_depth_1h')
+        rows:
+          - {contract_symbol: BTCUSDT, snapshot_hour: "2026-01-01 00:00:00+00", percentage: -1.00, notional_usdt: 100}
+          - {contract_symbol: BTCUSDT, snapshot_hour: "2026-01-01 00:00:00+00", percentage: 1.00, notional_usdt: 300}
+          - {contract_symbol: BTCUSDT, snapshot_hour: "2026-01-01 01:00:00+00", percentage: -1.00, notional_usdt: 200}
+          - {contract_symbol: BTCUSDT, snapshot_hour: "2026-01-01 01:00:00+00", percentage: 1.00, notional_usdt: 200}
+          - {contract_symbol: BTCUSDT, snapshot_hour: "2026-01-01 23:00:00+00", percentage: -1.00, notional_usdt: 900}
+          - {contract_symbol: BTCUSDT, snapshot_hour: "2026-01-01 23:00:00+00", percentage: 1.00, notional_usdt: 100}
+          - {contract_symbol: BTCUSDT, snapshot_hour: "2026-01-02 00:00:00+00", percentage: -1.00, notional_usdt: 5}
+          - {contract_symbol: BTCUSDT, snapshot_hour: "2026-01-02 00:00:00+00", percentage: 1.00, notional_usdt: 5}
+    expect:
+      rows:
+        - {contract_symbol: BTCUSDT, trade_date: 2026-01-01, hours_present: 3, bid_depth_1pct_usdt: 200, ask_depth_1pct_usdt: 200, imbalance_1pct: 0}
+        - {contract_symbol: BTCUSDT, trade_date: 2026-01-02, hours_present: 1, bid_depth_1pct_usdt: 5, ask_depth_1pct_usdt: 5, imbalance_1pct: 0}

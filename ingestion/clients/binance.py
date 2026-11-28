@@ -176,6 +176,22 @@ class BinanceFuturesClient(BinanceRestClient):
             params["endTime"] = end_time
         return self.get("/fapi/v1/klines", params)
 
+    def premium_index_klines(
+        self,
+        symbol: str,
+        interval: str,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        limit: int = 1000,
+    ) -> list[list[Any]]:
+        """Premium index klines, the kline array layout (volumes 0, count = 5 s samples)."""
+        params: dict[str, Any] = {"symbol": symbol, "interval": interval, "limit": limit}
+        if start_time is not None:
+            params["startTime"] = start_time
+        if end_time is not None:
+            params["endTime"] = end_time
+        return self.get("/fapi/v1/premiumIndexKlines", params)
+
     def funding_info(self) -> list[dict[str, Any]]:
         """Contracts whose funding cap, floor or interval was adjusted; others use the defaults."""
         return self.get("/fapi/v1/fundingInfo")

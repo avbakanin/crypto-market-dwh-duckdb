@@ -4,12 +4,13 @@ Run from repo root: python -m ingestion.extract_um_api [--nothing-new-exit-code 
 Contracts: the universe members on the newest day of the last dbt build (universe.py);
 none before the first build. Funding: also the members of the last FUNDING_MEMBER_DAYS
 days (the funding archive is monthly; labels of a former member need the current month).
-Six series, each with its own landing zone and watermark, by the algorithms of the
-whitelist's extracts: futures (last price) klines 1h, funding, open interest
-and the three long/short ratios. History of a contract new to a series: the last
-API_HISTORY_DAYS (the archive holds everything older; the /futures/data/ series serve
-about 30 days anyway). Taker buy volume comes with the klines, so the taker ratio endpoint
-is not extracted (it reads slightly below the klines, see extract_long_short).
+Seven series, each with its own landing zone and watermark, by the algorithms of the
+whitelist's extracts: futures (last price) klines 1h, funding, open interest, the three
+long/short ratios, and the premium index klines 1h (the klines algorithm, another
+endpoint). History of a contract new to a series: the last API_HISTORY_DAYS (the
+archive holds everything older; the /futures/data/ series serve about 30 days anyway).
+Taker buy volume comes with the klines, so the taker ratio endpoint is not extracted (it
+reads slightly below the klines, see extract_long_short).
 One as-of moment for all series.
 
 First, before the universe is read: the contract list of exchangeInfo (type, underlying,
@@ -38,6 +39,7 @@ from ingestion.universe import FUNDING_MEMBER_DAYS, latest_members, read_ranks, 
 API_HISTORY_DAYS = 35
 KLINES_DIR = LANDING_ZONE_DIR / "um_api_klines_1h"
 FUNDING_DIR = LANDING_ZONE_DIR / "um_api_funding_rate"
+PREMIUM_INDEX_DIR = LANDING_ZONE_DIR / "um_api_premium_index_1h"
 CONTRACTS_DIR = LANDING_ZONE_DIR / "um_contracts"
 CONTRACTS_FILE = "CONTRACTS"  # one file per batch: every USDT contract of exchangeInfo
 CONTRACT_FIELDS = (
@@ -59,6 +61,23 @@ STATS_SERIES = (
         name=f"um_api_global_account_ratio_{PERIOD}", endpoint="globalLongShortAccountRatio"
     ),
 )
+
+
+class PremiumIndexKlines:
+    """The premium index klines of a client, served as klines (extract_klines.KlinesSource)."""
+
+    def __init__(self, client: BinanceFuturesClient) -> None:
+        self.client = client
+
+    def klines(
+        self,
+        symbol: str,
+        interval: str,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        limit: int = 1000,
+    ) -> list[list[Any]]:
+        return self.client.premium_index_klines(symbol, interval, start_time, end_time, limit)
 
 
 def contracts_snapshot(exchange_info: dict[str, Any]) -> list[dict[str, Any]]:
@@ -113,6 +132,12 @@ def extract_all(
     for series in STATS_SERIES:
         print(f"\n== {series.name} ==")
         written.append(futures_stats.extract_batch(client, series, contracts, now_ms))
+    print("\n== um_api_premium_index_1h ==")
+    written.append(
+        extract_klines.extract_batch(
+            PremiumIndexKlines(client), contracts, now_ms, PREMIUM_INDEX_DIR, API_HISTORY_DAYS
+        )
+    )
     return [b for b in written if b is not None]
 
 

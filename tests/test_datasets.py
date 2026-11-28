@@ -26,6 +26,10 @@ def test_datasets_are_loaded_klines_first() -> None:
         "um_api_global_account_ratio",
         "um_contracts",
         "um_liquidations",
+        "um_archive_premium_index_1h",
+        "spot_archive_klines_1d",
+        "um_archive_book_depth_1h",
+        "um_api_premium_index_1h",
     ]
 
 
@@ -36,6 +40,9 @@ def test_only_archive_datasets_are_incremental() -> None:
         "um_archive_klines_1h",
         "um_archive_funding_rate",
         "um_archive_metrics_1h",
+        "um_archive_premium_index_1h",
+        "spot_archive_klines_1d",
+        "um_archive_book_depth_1h",
     ]
 
 
@@ -62,4 +69,8 @@ def test_landing_zones_keep_their_directories() -> None:
         "um_api_global_account_ratio": "um_api_global_account_ratio_1h",
         "um_contracts": "um_contracts",
         "um_liquidations": "um_liquidations",
+        "um_archive_premium_index_1h": "archive_um_premium_index_1h",
+        "spot_archive_klines_1d": "archive_spot_klines_1d",
+        "um_archive_book_depth_1h": "archive_um_book_depth_1h",
+        "um_api_premium_index_1h": "um_api_premium_index_1h",
     }

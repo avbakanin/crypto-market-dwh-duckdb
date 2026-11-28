@@ -18,7 +18,16 @@ from ingestion import (
     extract_open_interest,
     extract_um_api,
 )
-from ingestion.binance_archive import UM_FUNDING, UM_KLINES_1D, UM_KLINES_1H, UM_METRICS
+from ingestion.binance_archive import (
+    MICROSECONDS_FROM,
+    SPOT_KLINES_1D,
+    UM_BOOK_DEPTH,
+    UM_FUNDING,
+    UM_KLINES_1D,
+    UM_KLINES_1H,
+    UM_METRICS,
+    UM_PREMIUM_INDEX_1H,
+)
 
 
 @dataclass(frozen=True)
@@ -114,11 +123,44 @@ UM_ARCHIVE_METRICS_1H = RawDataset(
     key_sql="payload->>'create_time'",
     incremental=True,
 )
+UM_ARCHIVE_PREMIUM_INDEX_1H = RawDataset(
+    name="um_archive_premium_index_1h",
+    landing_dir=UM_PREMIUM_INDEX_1H.output_dir,
+    table="raw.binance_um_archive_premium_index_1h",
+    key_sql=ARCHIVE_KLINES_KEY,
+    incremental=True,
+)
+# Spot pairs of the universe's coins; open_time is in microseconds from 2025 (note 143).
+SPOT_ARCHIVE_KLINES_1D = RawDataset(
+    name="spot_archive_klines_1d",
+    landing_dir=SPOT_KLINES_1D.output_dir,
+    table="raw.binance_spot_archive_klines_1d",
+    key_sql=(
+        f"case when (payload->>'open_time')::bigint >= {MICROSECONDS_FROM} "
+        "then (payload->>'open_time')::bigint // 1000 "
+        "else (payload->>'open_time')::bigint end"
+    ),
+    incremental=True,
+)
+# Each hour's first order book snapshot, a row per band (binance_archive.first_snapshots).
+UM_ARCHIVE_BOOK_DEPTH_1H = RawDataset(
+    name="um_archive_book_depth_1h",
+    landing_dir=UM_BOOK_DEPTH.output_dir,
+    table="raw.binance_um_archive_book_depth_1h",
+    key_sql="(payload->>'timestamp') || '|' || (payload->>'percentage')",
+    incremental=True,
+)
 # USD-M universe, the API tail (the last days the archive has not published yet).
 UM_API_KLINES_1H = RawDataset(
     name="um_api_klines_1h",
     landing_dir=extract_um_api.KLINES_DIR,
     table="raw.binance_um_api_klines_1h",
+    key_sql="(payload->>0)::bigint",
+)
+UM_API_PREMIUM_INDEX_1H = RawDataset(
+    name="um_api_premium_index_1h",
+    landing_dir=extract_um_api.PREMIUM_INDEX_DIR,
+    table="raw.binance_um_api_premium_index_1h",
     key_sql="(payload->>0)::bigint",
 )
 UM_API_FUNDING_RATE = RawDataset(
@@ -164,4 +206,8 @@ DATASETS = (
     *UM_API_STATS,
     UM_CONTRACTS,
     UM_LIQUIDATIONS,
+    UM_ARCHIVE_PREMIUM_INDEX_1H,
+    SPOT_ARCHIVE_KLINES_1D,
+    UM_ARCHIVE_BOOK_DEPTH_1H,
+    UM_API_PREMIUM_INDEX_1H,
 )

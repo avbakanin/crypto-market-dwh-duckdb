@@ -145,3 +145,44 @@ sources:
           freshness:
             warn_after: {count: 6, period: hour}
             error_after: null
+
+      # Market structure (source note 143). Warn only: none of them feeds the forward test
+      # yet, and a stalled extra dataset must not stop the pipeline.
+      - name: binance_um_archive_premium_index_1h
+        description: >
+          Hourly premium index candles of the universe's contracts (the kline layout; volumes
+          0, count = 5 s samples), on the days of the hourly klines.
+        config:
+          loaded_at_field: "epoch_ms((payload->>'open_time')::bigint)::timestamptz + interval 1 hour"
+          freshness:
+            warn_after: {count: 38, period: hour}
+            error_after: null
+      - name: binance_um_api_premium_index_1h
+        description: Premium index 1h klines of the universe from the API (the archive's tail).
+        config:
+          loaded_at_field: "epoch_ms((payload->>0)::bigint)::timestamptz + interval 1 hour"
+          freshness:
+            warn_after: {count: 6, period: hour}
+            error_after: null
+      - name: binance_spot_archive_klines_1d
+        description: >
+          Daily spot candles of the pairs that may trade the universe's coins (the contract's
+          symbol, or without its 1000 / 1000000 / 1M prefix); no header, times in
+          microseconds from 2025.
+        config:
+          loaded_at_field: >-
+            epoch_ms(case when (payload->>'open_time')::bigint >= 100000000000000
+            then (payload->>'open_time')::bigint // 1000
+            else (payload->>'open_time')::bigint end)::timestamptz + interval 1 day
+          freshness:
+            warn_after: {count: 38, period: hour}
+            error_after: null
+      - name: binance_um_archive_book_depth_1h
+        description: >
+          Order book depth of the universe's contracts: each hour's first snapshot of the
+          daily files (12 bands, -5 .. +5 % of the mid), from 2023.
+        config:
+          loaded_at_field: "(payload->>'timestamp')::timestamp at time zone 'UTC'"
+          freshness:
+            warn_after: {count: 38, period: hour}
+            error_after: null

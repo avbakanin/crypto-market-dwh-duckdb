@@ -59,6 +59,19 @@ def test_futures_klines_request(client: RecordingFutures) -> None:
     ]
 
 
+def test_premium_index_klines_serve_as_klines(client: RecordingFutures) -> None:
+    # The API tail extracts them with the klines algorithm through this adapter.
+    from ingestion.extract_um_api import PremiumIndexKlines
+
+    PremiumIndexKlines(client).klines("BTCUSDT", "1h", start_time=START_MS, limit=1500)
+    assert client.requests == [
+        (
+            "/fapi/v1/premiumIndexKlines",
+            {"symbol": "BTCUSDT", "interval": "1h", "limit": 1500, "startTime": START_MS},
+        )
+    ]
+
+
 def test_funding_rate_request(client: RecordingFutures) -> None:
     client.funding_rate("BTCUSDT", start_time=START_MS, end_time=START_MS + 1, limit=1000)
     assert client.requests == [

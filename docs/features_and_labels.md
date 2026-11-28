@@ -75,3 +75,22 @@ UTC day) from the all-market stream (`ingestion/collect_liquidations.py`, source
 with `coverage_minutes` of the day (1440 = complete). The stream sends at most one
 liquidation per contract per second, so the volume is a lower bound. A feature needs months
 of history first; days before 2026-11-28 have none.
+
+## Market structure (from 2026-11-28, not a feature yet)
+
+Inputs for the next features (source note 143); none feeds a registered version.
+
+- `int_um__premium_index_1h` / `int_um__premium_daily`: the premium of the contract over
+  its index (the unclamped basis behind funding), hourly from the archive since 2020 and
+  from the API tail after it; per day the mean of hourly closes, the last close and the
+  range. Live by the 00:07 run.
+- `int_um__spot_daily`: the coin's spot pair, matched by price, per contract day: spot
+  close per contract unit, spot quote and taker buy volume, `spot_perp_log_gap`, and
+  `price_matches` (false on days more than 10 % apart or with either side idle).
+- `int_um__book_depth_daily`: medians over the day's hourly snapshots of the USDT depth
+  within 0.2 / 1 / 2 % of the mid per side, and the 1 % imbalance, from 2023.
+- Spot and book depth come from the archive only: day D-1 is published in the morning of
+  D, after the 01:00 entry, so a feature of D must read D-2 at the latest (in research too,
+  or the backtest sees a day the live signal does not).
+- Warn checks: premium archive vs API, premium and book depth member-day coverage, spot
+  days more than 10 % off their contract.
