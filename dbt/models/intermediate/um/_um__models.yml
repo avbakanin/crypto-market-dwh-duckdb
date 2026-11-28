@@ -87,6 +87,22 @@ models:
       - name: history_days
         data_tests: [not_null]
 
+  - name: int_um__liquidations_daily
+    description: >
+      USD-M liquidations per (contract, UTC day) from the stream (a lower bound), with the
+      day's stream coverage in minutes (1440 = complete).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [contract_symbol, liquidation_date]
+    columns:
+      - name: coverage_minutes
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1440
+
 unit_tests:
   - name: universe_ranks_by_the_past_only
     description: >
@@ -225,3 +241,24 @@ unit_tests:
           hours_feature_day: 24
         - <<: *calm
           symbol: AUSDT
+
+  - name: liquidations_daily_split_sides_and_carry_coverage
+    description: >
+      SELL orders are long liquidations, BUY short ones; a day's coverage sums its hours;
+      a day with liquidations but no stream records has coverage 0.
+    model: int_um__liquidations_daily
+    given:
+      - input: ref('stg_binance__um_liquidations')
+        rows:
+          - {contract_symbol: BTCUSDT, trade_time: "2026-11-28 01:00:00+00", liquidated_side: long, notional_usdt: 100}
+          - {contract_symbol: BTCUSDT, trade_time: "2026-11-28 23:59:59+00", liquidated_side: long, notional_usdt: 50}
+          - {contract_symbol: BTCUSDT, trade_time: "2026-11-28 02:00:00+00", liquidated_side: short, notional_usdt: 7}
+          - {contract_symbol: ETHUSDT, trade_time: "2026-11-29 00:00:00+00", liquidated_side: short, notional_usdt: 3}
+      - input: ref('stg_binance__um_liquidation_stream')
+        rows:
+          - {stream_hour: "2026-11-28 01:00:00+00", connected_minutes: 60}
+          - {stream_hour: "2026-11-28 02:00:00+00", connected_minutes: 45}
+    expect:
+      rows:
+        - {contract_symbol: BTCUSDT, liquidation_date: 2026-11-28, long_liquidated_usdt: 150, short_liquidated_usdt: 7, long_liquidations: 2, short_liquidations: 1, coverage_minutes: 105}
+        - {contract_symbol: ETHUSDT, liquidation_date: 2026-11-29, long_liquidated_usdt: 0, short_liquidated_usdt: 3, long_liquidations: 0, short_liquidations: 1, coverage_minutes: 0}

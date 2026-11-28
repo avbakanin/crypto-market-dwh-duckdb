@@ -141,3 +141,57 @@ models:
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns: [contract_symbol, snapshot_time_ms]
+
+  - name: stg_binance__um_liquidations
+    description: USD-M liquidations from the stream (a lower bound), one row per distinct message.
+    columns:
+      - name: contract_symbol
+        data_tests: [not_null]
+      - name: trade_time_ms
+        data_tests: [not_null]
+      - name: order_side
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [SELL, BUY]
+      - name: order_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [FILLED, PARTIALLY_FILLED]
+              config:
+                severity: warn
+    data_tests:
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "notional_usdt > 0"
+
+  - name: stg_binance__um_liquidation_stream
+    description: Connected minutes of the liquidation stream per hour (60 = complete hour).
+    columns:
+      - name: stream_hour_ms
+        data_tests: [unique, not_null]
+      - name: connected_minutes
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 60
+
+unit_tests:
+  - name: liquidations_map_sides_and_drop_repeated_messages
+    description: >
+      SELL closes a long, BUY a short; notional = filled quantity x average price; the same
+      message twice is one liquidation; STREAM records are not liquidations.
+    model: stg_binance__um_liquidations
+    given:
+      - input: source('binance', 'binance_um_liquidations')
+        rows:
+          - {symbol: BTCUSDT, _batch_id: B1, _file_row_number: 1, payload: '{"e":"forceOrder","E":1001,"o":{"s":"BTCUSDT","S":"SELL","X":"FILLED","z":"2","ap":"100.5","T":1000}}'}
+          - {symbol: BTCUSDT, _batch_id: B1, _file_row_number: 2, payload: '{"e":"forceOrder","E":1001,"o":{"s":"BTCUSDT","S":"SELL","X":"FILLED","z":"2","ap":"100.5","T":1000}}'}
+          - {symbol: ETHUSDT, _batch_id: B1, _file_row_number: 1, payload: '{"e":"forceOrder","E":2001,"o":{"s":"ETHUSDT","S":"BUY","X":"FILLED","z":"0.5","ap":"10","T":2000}}'}
+          - {symbol: STREAM, _batch_id: B1, _file_row_number: 1, payload: '{"r":1500,"c":"alive"}'}
+    expect:
+      rows:
+        - {contract_symbol: BTCUSDT, trade_time_ms: 1000, order_side: SELL, liquidated_side: long, notional_usdt: 201}
+        - {contract_symbol: ETHUSDT, trade_time_ms: 2000, order_side: BUY, liquidated_side: short, notional_usdt: 5}

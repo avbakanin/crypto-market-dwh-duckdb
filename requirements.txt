@@ -8,3 +8,5 @@ pyarrow==26.0.1
 python-dotenv==1.2.4
 requests==2.34.2
 urllib3==2.8.0
+# The liquidation collector's stream (ingestion/collect_liquidations.py); no dependencies.
+websockets==17.4

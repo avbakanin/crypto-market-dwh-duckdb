@@ -212,6 +212,25 @@ services:
       PATH: /opt/project-venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     volumes: *project-volumes
 
+  # Collects USD-M liquidations from Binance's stream around the clock into hourly batches
+  # of the landing zone (ingestion/collect_liquidations.py); the DAG's load_raw picks them
+  # up. No DuckDB access. History exists only from the day it runs: keep it up.
+  liquidations:
+    image: crypto-market-dwh-duckdb:dev
+    entrypoint: ["/usr/bin/dumb-init", "--"]
+    command: ["python", "-m", "ingestion.collect_liquidations"]
+    working_dir: /opt/project
+    environment:
+      LANDING_ZONE_DIR: /opt/project/data/raw
+      PIPELINE_MODE: ${PIPELINE_MODE:?set PIPELINE_MODE in .env (follow or own)}
+      PYTHONUNBUFFERED: "1"
+      PATH: /opt/project-venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    volumes:
+      - ${LANDING_ZONE_DIR:-./data/raw}:/opt/project/data/raw:${LANDING_ZONE_ACCESS:-ro}
+      - ./data/spool:/opt/project/data/spool
+    mem_limit: 256m
+    restart: unless-stopped
+
   # Read-only dashboard over the newest mart export (dashboard/). No Airflow, no project code
   # but dashboard/: only data/marts, mounted read-only; root filesystem read-only. Profile
   # "dashboard": while the original runs, its dashboard is enough and the VM's memory is

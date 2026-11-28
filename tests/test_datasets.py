@@ -25,6 +25,7 @@ def test_datasets_are_loaded_klines_first() -> None:
         "um_api_top_position_ratio",
         "um_api_global_account_ratio",
         "um_contracts",
+        "um_liquidations",
     ]
 
 
@@ -60,4 +61,5 @@ def test_landing_zones_keep_their_directories() -> None:
         "um_api_top_position_ratio": "um_api_top_position_ratio_1h",
         "um_api_global_account_ratio": "um_api_global_account_ratio_1h",
         "um_contracts": "um_contracts",
+        "um_liquidations": "um_liquidations",
     }

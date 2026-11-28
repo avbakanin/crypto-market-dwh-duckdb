@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ingestion import (
+    collect_liquidations,
     extract_funding,
     extract_klines,
     extract_long_short,
@@ -142,6 +143,15 @@ UM_CONTRACTS = RawDataset(
     key_sql="payload->>'symbol'",
 )
 
+# USD-M liquidations from the stream (collect_liquidations.py): one batch per hour, the
+# messages per contract plus STREAM.json, the connection records of the hour.
+UM_LIQUIDATIONS = RawDataset(
+    name="um_liquidations",
+    landing_dir=collect_liquidations.OUTPUT_DIR,
+    table="raw.binance_um_liquidations",
+    key_sql="payload::VARCHAR",  # the whole record (collect_liquidations.canonical)
+)
+
 # Loaded in this order.
 DATASETS = (
     *BASELINE_DATASETS,
@@ -153,4 +163,5 @@ DATASETS = (
     UM_API_FUNDING_RATE,
     *UM_API_STATS,
     UM_CONTRACTS,
+    UM_LIQUIDATIONS,
 )

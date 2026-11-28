@@ -67,3 +67,11 @@ Per (D, symbol, horizon), for members whose entry candle traded:
   member has a label for every covered horizon; MAE <= 0 <= MFE; cost within 14-500 bps;
   funding on every recent member day.
 - Warn: daily bars vs the archive's own daily candles (source note 139).
+
+## Liquidations (collected from 2026-11-28, not a feature yet)
+
+`int_um__liquidations_daily`: long / short liquidated notional and counts per (contract,
+UTC day) from the all-market stream (`ingestion/collect_liquidations.py`, source note 142),
+with `coverage_minutes` of the day (1440 = complete). The stream sends at most one
+liquidation per contract per second, so the volume is a lower bound. A feature needs months
+of history first; days before 2026-11-28 have none.

@@ -130,3 +130,18 @@ sources:
           no data time, so no freshness.
         config:
           freshness: null
+      - name: binance_um_liquidations
+        description: >
+          USD-M liquidations from the all-market stream (ingestion/collect_liquidations.py),
+          one batch per hour: forceOrder messages under their contract, and the connection
+          records of the hour under symbol STREAM ({"r": received_ms, "c": open | alive |
+          close}). The stream sends at most one liquidation per contract per second: a lower
+          bound of the volume.
+        config:
+          loaded_at_field: >-
+            epoch_ms(coalesce((payload->'o'->>'T')::bigint, (payload->>'r')::bigint))::timestamptz
+          # Warn only: a stopped collector must not stop the pipeline. Hours are sealed 90 s
+          # after they end and loaded by the next 3-hourly run.
+          freshness:
+            warn_after: {count: 6, period: hour}
+            error_after: null
