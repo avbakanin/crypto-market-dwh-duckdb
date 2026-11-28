@@ -3,7 +3,7 @@
 Its shape depends on PIPELINE_MODE (who owns the landing zone, see ingestion/settings.py):
 
 follow  check_environment -> load_raw -> source_freshness -> dbt_build -> dq_log -> export_marts
-        dq_log -> signals (next to export_marts, in both modes)
+        dq_log -> signals, screener (next to export_marts, in both modes)
         The Snowflake original extracts into the landing zone (at :07) and this stack mounts
         it read-only: no extract tasks, and the run comes 30 minutes later, at :37.
 own     check_environment -> extract x6 (in parallel) -> load_raw -> ... (as above), at :07.
@@ -155,8 +155,17 @@ with DAG(
         execution_timeout=timedelta(minutes=15),
     )
 
+    # Market context (signals/screener.py), once a day when today's features exist; not
+    # signals, so it does not wait for them. Nothing new (sent already) skips.
+    screener = project_task(
+        "screener",
+        f"python -m signals.screener --nothing-new-exit-code {SKIPPED}",
+        skip_on_exit_code=SKIPPED,
+        execution_timeout=timedelta(minutes=10),
+    )
+
     if extracts:
         check_environment >> extracts >> load_raw
     else:
         check_environment >> load_raw
-    load_raw >> source_freshness >> dbt_build >> dq_log >> [export_marts, signals]
+    load_raw >> source_freshness >> dbt_build >> dq_log >> [export_marts, signals, screener]

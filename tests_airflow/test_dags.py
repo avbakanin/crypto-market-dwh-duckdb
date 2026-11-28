@@ -92,6 +92,7 @@ LOAD_AND_AFTER = {
     "dq_log",
     "export_marts",
     "signals",
+    "screener",
 }
 
 
@@ -142,6 +143,7 @@ def test_a_follower_has_no_extract_and_loads_after_the_check(follower: DAG) -> N
         "dq_log": {"dbt_build"},
         "export_marts": {"dq_log"},
         "signals": {"dq_log"},
+        "screener": {"dq_log"},
     }
 
 
@@ -156,11 +158,12 @@ def test_an_owner_extracts_in_parallel_between_the_check_and_the_load(owner: DAG
         "dq_log": {"dbt_build"},
         "export_marts": {"dq_log"},
         "signals": {"dq_log"},
+        "screener": {"dq_log"},
     }
 
 
 def test_only_nothing_new_skips_the_extracts_and_the_load(pipeline: DAG) -> None:
-    skipping = extracts_of(pipeline) | {"load_raw", "signals"}
+    skipping = extracts_of(pipeline) | {"load_raw", "signals", "screener"}
     for task_id, task in pipeline.task_dict.items():
         if task_id in skipping:
             assert task.bash_command.endswith("--nothing-new-exit-code 99"), task_id
@@ -187,6 +190,7 @@ def test_retries_only_where_a_retry_can_help(pipeline: DAG) -> None:
         "dq_log": 0,
         "export_marts": 1,
         "signals": 0,
+        "screener": 0,
     }
 
 
@@ -220,6 +224,14 @@ def test_the_forward_test_logs_after_every_check_passed(pipeline: DAG) -> None:
     assert signals.bash_command == f"{PROJECT_BIN}python -m signals.run --nothing-new-exit-code 99"
     assert signals.upstream_task_ids == {"dq_log"}
     assert signals.trigger_rule == TriggerRule.ALL_SUCCESS
+
+
+def test_the_screener_sends_context_after_every_check_passed(pipeline: DAG) -> None:
+    screener = pipeline.task_dict["screener"]
+    command = "python -m signals.screener --nothing-new-exit-code 99"
+    assert screener.bash_command == f"{PROJECT_BIN}{command}"
+    assert screener.upstream_task_ids == {"dq_log"}
+    assert screener.trigger_rule == TriggerRule.ALL_SUCCESS
 
 
 def _callbacks(value: object) -> list[object]:
