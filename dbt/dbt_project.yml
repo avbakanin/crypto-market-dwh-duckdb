@@ -80,6 +80,18 @@ vars:
   # Hours of the recent window in which a missing hour of a member is a stop, not a warning
   # (older history keeps the archive's own gaps).
   um_recent_days: 35
+  # Labels (fct_um_forward_returns, docs/features_and_labels.md). Binance USD-M taker fee
+  # at VIP 0 without the BNB discount (0.05 %, checked 2026-11-28); slippage per side is
+  # max(floor, rv_30d * sqrt(order / average daily turnover)) for an order of this size.
+  label_horizons: [1, 3, 7, 14]
+  entry_delay_hours: 1
+  taker_fee_bps: 5
+  slippage_floor_bps: 2
+  slippage_order_usd: 10000
+  # Liquidation check of the MAE: maintenance margin of the smallest notional tier (Binance
+  # 0.4-2.5 % by contract; 1 % is a middle) and the leverages reported.
+  maintenance_margin_rate: 0.01
+  leverage_levels: [3, 5, 10]
 
 seeds:
   crypto_market_dwh:

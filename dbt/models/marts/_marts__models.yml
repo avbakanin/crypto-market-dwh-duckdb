@@ -319,3 +319,54 @@ models:
         data_tests: [not_null]
       - name: followed_by_pump
         data_tests: [not_null]
+
+  - name: fct_um_forward_returns
+    description: >
+      Labels of the USD-M universe: per (decision_date, member, horizon) the return of a
+      long and a short entered at D 01:00 UTC and held the horizon, after taker fees,
+      slippage and funding, with the adverse and favourable excursions and whether 3/5/10x
+      leverage survives. Only horizons the archive has covered. docs/features_and_labels.md.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [decision_date, symbol, horizon_days]
+    columns:
+      - name: exit_reason
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [horizon, delisted]
+      - name: exit_price
+        data_tests: [not_null]
+      - name: gross_return
+        data_tests: [not_null]
+      - name: cost_return
+        description: Round trip (two sides) of taker fee and slippage, a fraction.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0.0014
+                max_value: 0.05
+      - name: mae_long
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                max_value: 0
+      - name: mfe_long
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: mae_short
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                max_value: 0
+      - name: mfe_short
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0

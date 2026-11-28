@@ -50,6 +50,43 @@ models:
           arguments:
             combination_of_columns: [contract_symbol, snapshot_time_ms]
 
+  - name: int_um__daily_bars
+    description: >
+      Daily bars (UTC) of the USD-M universe from the hourly series: OHLC, volumes, hours
+      present, realized variance of hourly log returns, the day's funding, open interest
+      at the day's last snapshot and the day's average long/short ratios.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [symbol, trade_date]
+    columns:
+      - name: close_price
+        data_tests: [not_null]
+      - name: hours_present
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 24
+
+  - name: int_um__features_daily
+    description: >
+      Daily features per (decision_date D, member of D), from days up to D-1 only:
+      momentum, trend, volatility, turnover and taker flow, funding, open interest,
+      long/short, strength against BTC and the members, breadth. NULL where the window
+      lacks days or the metric did not exist yet. docs/features_and_labels.md.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [decision_date, symbol]
+    columns:
+      - name: feature_date
+        description: D-1, the day the features read up to; NULL without a bar on D-1.
+      - name: hours_feature_day
+        data_tests: [not_null]
+      - name: history_days
+        data_tests: [not_null]
+
 unit_tests:
   - name: universe_ranks_by_the_past_only
     description: >
@@ -124,3 +161,67 @@ unit_tests:
         - {symbol: BTCUSDT, open_time_ms: 0, close_price: 1, source: archive}
         - {symbol: BTCUSDT, open_time_ms: 3600000, close_price: 3, source: api}
         - {symbol: ETHUSDT, open_time_ms: 0, close_price: 4, source: api}
+
+  - name: features_read_the_past_only
+    description: >
+      Features of D read days up to D-1 only. 69 calm days (2026-01-01 .. 03-10: price
+      constant, high/low +-25 %, realized variance 0.25, taker half, funding 0.0003 a day)
+      are followed by 7 days from D on with every input changed (price x10, variance 4,
+      funding 0.01, open interest x10, long/short x2). The features of D equal those of the
+      calm days. A mutant whose window reaches a day ahead (lead, a following frame, D's own
+      bar) fails.
+    model: int_um__features_daily
+    given:
+      - input: ref('int_um__daily_bars')
+        format: sql
+        rows: |
+          select
+              s.symbol,
+              date '2026-01-01' + r.i::integer as trade_date,
+              (s.base * m.k)::decimal(38, 8) as open_price,
+              (s.base * m.k * 1.25)::decimal(38, 8) as high_price,
+              (s.base * m.k * 0.75)::decimal(38, 8) as low_price,
+              (s.base * m.k)::decimal(38, 8) as close_price,
+              (1000 * m.k)::decimal(38, 8) as quote_volume,
+              (case when r.i < 69 then 500 else 9000 end)::decimal(38, 8)
+                  as taker_buy_quote_volume,
+              100::bigint as trade_count,
+              24::bigint as hours_present,
+              (case when r.i < 69 then 0.25 else 4 end)::double as realized_var,
+              (case when r.i < 69 then 0.0003 else 0.01 end)::decimal(38, 8) as funding_sum,
+              3::bigint as funding_count,
+              (1e6 * m.k)::decimal(38, 8) as oi_usdt_eod,
+              null::timestamptz as oi_snapshot_time,
+              (case when r.i < 69 then 1.5 else 3 end)::double as global_ls,
+              1.2::double as top_position_ls,
+              1.1::double as top_account_ls
+          from (values ('AUSDT', 100), ('BTCUSDT', 200)) as s(symbol, base),
+              range(76) as r(i),
+              lateral (select case when r.i < 69 then 1 else 10 end as k) as m
+      - input: ref('int_um__universe_daily')
+        rows:
+          - {universe_date: 2026-03-11, symbol: BTCUSDT, turnover_30d: 1, turnover_rank: 1, is_member: true}
+          - {universe_date: 2026-03-11, symbol: AUSDT, turnover_30d: 1, turnover_rank: 2, is_member: true}
+    expect:
+      rows:
+        - &calm
+          decision_date: 2026-03-11
+          symbol: BTCUSDT
+          feature_date: 2026-03-10
+          ret_1d: 0
+          ret_60d: 0
+          close_to_sma50: 0
+          rv_7d: 0.5
+          rv_30d: 0.5
+          atr_14d_pct: 0.5
+          taker_buy_share_7d: 0.5
+          funding_1d: 0.0003
+          funding_7d: 0.0021
+          oi_chg_7d: 0
+          global_ls_chg_7d: 0
+          rel_btc_ret_30d: 0
+          ret_7d_rank_pct: 0
+          history_days: 69
+          hours_feature_day: 24
+        - <<: *calm
+          symbol: AUSDT

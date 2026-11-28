@@ -13,8 +13,9 @@ crypto_market_dwh:
       settings:
         # timestamptz is shown in the session's zone: every reader of the warehouse uses UTC.
         TimeZone: UTC
-        # Two pipelines share a 6 GB Docker VM until the switch-over; DuckDB spills to disk.
+        # The pipeline has the 6 GB Docker VM alone since the switch-over (2026-11-27); the
+        # labels (fct_um_forward_returns) need ~1.5 GiB at 4 threads. DuckDB spills to disk.
         # GiB: DuckDB reads GB as 10^9 bytes.
-        memory_limit: 1GiB
+        memory_limit: 2GiB
         # DuckDB's own worker threads (default: every core); not dbt's threads above.
         threads: 4

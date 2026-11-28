@@ -235,3 +235,102 @@ unit_tests:
         - {rule: volume_1_5x, signal_date: 2025-01-02, signal_hours: 1, followed_by_pump: 1}
         - {rule: volume_2x, signal_date: 2025-01-02, signal_hours: 1, followed_by_pump: 1}
         - {rule: volume_3x_rising_below_threshold, signal_date: 2025-01-02, signal_hours: 1, followed_by_pump: 1}
+
+  - name: forward_returns_after_costs_funding_and_delisting
+    description: >
+      1-day labels of 2026-01-01, entry at 01:00. AUSDT: entry 100, exit candle 2026-01-02
+      01:00 opens at 110; low 90 at 05:00, high 120 at 12:00 while held; low 1 at 03:00
+      after the target must not count. Funding: 00:00 before the entry and 08:00 after the
+      exit are out, the three between (0.0001 each) are in: the long pays 0.0003, the short
+      receives it. Costs: rv 0 -> slippage floor 2 bps, 2 x (5 + 2) bps = 0.0014. MAE -10 %
+      survives 5x (-19 %), not 10x (-9 %). BUSDT stops trading after its 05:00 candle (close
+      50; idle candles after it): exit at 06:00 at 50, funding after it out. Mutants that
+      flip the funding sign or read candles past the target fail.
+    model: fct_um_forward_returns
+    overrides:
+      vars:
+        label_horizons: [1]
+        leverage_levels: [5, 10]
+    given:
+      - input: ref('int_um__klines_1h')
+        format: sql
+        rows: |
+          select
+              s.symbol,
+              timestamptz '2026-01-01 00:00:00+00' + to_hours(r.i::integer) as open_time,
+              timestamptz '2026-01-01 00:59:59.999+00' + to_hours(r.i::integer) as close_time,
+              (case
+                  when s.symbol = 'AUSDT' and r.i = 25 then 110
+                  when s.symbol = 'BUSDT' and r.i > 5 then 50
+                  else 100 end)::decimal(38, 8) as open_price,
+              (case
+                  when s.symbol = 'AUSDT' and r.i = 12 then 120
+                  when s.symbol = 'AUSDT' and r.i = 25 then 110
+                  when s.symbol = 'BUSDT' and r.i > 5 then 50
+                  else 100 end)::decimal(38, 8) as high_price,
+              (case
+                  when s.symbol = 'AUSDT' and r.i = 5 then 90
+                  when s.symbol = 'AUSDT' and r.i = 27 then 1
+                  when s.symbol = 'BUSDT' and r.i >= 5 then 50
+                  else 100 end)::decimal(38, 8) as low_price,
+              (case
+                  when s.symbol = 'AUSDT' and r.i = 25 then 110
+                  when s.symbol = 'BUSDT' and r.i >= 5 then 50
+                  else 100 end)::decimal(38, 8) as close_price,
+              1::decimal(38, 8) as base_volume,
+              100::decimal(38, 8) as quote_volume,
+              (case when s.symbol = 'BUSDT' and r.i > 5 then 0 else 10 end)::bigint
+                  as trade_count,
+              0::decimal(38, 8) as taker_buy_base_volume,
+              0::decimal(38, 8) as taker_buy_quote_volume,
+              epoch_ms(timestamptz '2026-01-01 00:00:00+00') + r.i * 3600000 as open_time_ms,
+              'archive' as source
+          from (values ('AUSDT'), ('BUSDT')) as s(symbol), range(72) as r(i)
+      - input: ref('int_um__features_daily')
+        rows:
+          - {decision_date: 2026-01-01, symbol: AUSDT, rv_30d: 0, avg_turnover_30d: 1000000000}
+          - {decision_date: 2026-01-01, symbol: BUSDT, rv_30d: 0, avg_turnover_30d: 1000000000}
+      - input: ref('int_um__funding_rate')
+        rows:
+          - {contract_symbol: AUSDT, funding_hour: "2026-01-01 00:00:00+00", funding_rate: 0.001}
+          - {contract_symbol: AUSDT, funding_hour: "2026-01-01 08:00:00+00", funding_rate: 0.0001}
+          - {contract_symbol: AUSDT, funding_hour: "2026-01-01 16:00:00+00", funding_rate: 0.0001}
+          - {contract_symbol: AUSDT, funding_hour: "2026-01-02 00:00:00+00", funding_rate: 0.0001}
+          - {contract_symbol: AUSDT, funding_hour: "2026-01-02 08:00:00+00", funding_rate: 0.001}
+          - {contract_symbol: BUSDT, funding_hour: "2026-01-01 08:00:00+00", funding_rate: 0.01}
+    expect:
+      rows:
+        - decision_date: 2026-01-01
+          symbol: AUSDT
+          horizon_days: 1
+          exit_reason: horizon
+          exit_time: "2026-01-02 01:00:00+00"
+          gross_return: 0.1
+          funding_return: 0.0003
+          cost_return: 0.0014
+          net_return_long: 0.0983
+          net_return_short: -0.1011
+          mae_long: -0.1
+          mfe_long: 0.2
+          mae_short: -0.2
+          mfe_short: 0.1
+          long_survives_5x: true
+          long_survives_10x: false
+          short_survives_5x: false
+        - decision_date: 2026-01-01
+          symbol: BUSDT
+          horizon_days: 1
+          exit_reason: delisted
+          exit_time: "2026-01-01 06:00:00+00"
+          gross_return: -0.5
+          funding_return: 0
+          cost_return: 0.0014
+          net_return_long: -0.5014
+          net_return_short: 0.4986
+          mae_long: -0.5
+          mfe_long: 0
+          mae_short: 0
+          mfe_short: 0.5
+          long_survives_5x: false
+          long_survives_10x: false
+          short_survives_5x: true
