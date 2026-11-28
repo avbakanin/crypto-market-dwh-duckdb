@@ -2,7 +2,10 @@
     Days a universe member lacks hourly rows in a model: (day, symbol, hours present) for
     member days in [first_day, last_day] with fewer than 24 rows. Days up to D-2 are
     checked for that day's members (the archive has them by the morning of D-1); D-1 only
-    for the members of the newest universe day, whose hours the API extract fetches. Idle
+    for the members of today's universe (or the newest, if older), whose hours the API
+    extract fetches. Not tomorrow's: once the archive publishes D-1, the build makes the
+    universe of D+1, and its newcomers reach the API extract only on the next run
+    (PORTALUSDT, rank 417 -> 99 on 2026-11-29; source note 140). Idle
     candles of a delisted contract are rows like any other.
 #}
 {% macro um_member_day_gaps(relation, symbol_column, time_column, first_day, last_day) %}
@@ -25,7 +28,7 @@ members as (
     select current_date - 1 as day, symbol
     from universe
     where is_member
-        and universe_date = (select max(universe_date) from universe)
+        and universe_date = least(current_date, (select max(universe_date) from universe))
         and current_date - 1 between {{ first_day }} and {{ last_day }}
 
 ),
