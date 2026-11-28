@@ -67,3 +67,30 @@ seeds:
           - accepted_values:
               arguments:
                 values: [index, commodity token, stablecoin]
+
+  - name: signal_definitions
+    description: >
+      Signal versions of the research (config/signal_definitions.csv, written from the
+      research runs in data/research/): protocol, family, mode, horizon, status and the
+      run behind it. A version reaches Telegram only with status 'confirmed'; a change of
+      a version is a new row. docs/signal_research.md.
+    config:
+      column_types:
+        version: varchar
+        protocol: integer
+        family: varchar
+        mode: varchar
+        horizon_days: integer
+        status: varchar
+        evidence_run: varchar
+        decided_on: date
+        note: varchar
+    columns:
+      - name: version
+        data_tests: [unique, not_null]
+      - name: status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [rejected, holdout_not_confirmed, forward_test, confirmed]
