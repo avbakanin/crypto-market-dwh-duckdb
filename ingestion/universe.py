@@ -2,7 +2,9 @@
 
 dbt builds it (int_um__universe_daily: a turnover rank per eligible contract and day); the
 extracts read the last build to decide what to download:
-- the API tail: the members (rank <= UNIVERSE_SIZE) on the newest day;
+- the API tail: the members (rank <= UNIVERSE_SIZE) on the newest day; funding for the
+  members of the last FUNDING_MEMBER_DAYS days (the archive has funding by month only, so
+  a contract that left the top keeps needing the current month for its labels);
 - archive klines and funding: every contract ever ranked within DOWNLOAD_RANK;
 - archive metrics (the heavy part, one file a day): day d of a contract when it ranks
   within DOWNLOAD_RANK that day, or becomes a member within LOOKAHEAD_DAYS after it, so a
@@ -23,6 +25,9 @@ from ingestion.warehouse import connect
 UNIVERSE_SIZE = 100  # must equal the dbt var um_universe_size (a test checks it)
 DOWNLOAD_RANK = 150
 LOOKAHEAD_DAYS = 30
+# The month the funding archive has not published yet (up to ~32 days early in a month)
+# plus the longest label horizon (14 days), with a margin.
+FUNDING_MEMBER_DAYS = 50
 UNIVERSE_TABLE = "staging.int_um__universe_daily"
 
 Rank = tuple[date, str, int]  # (universe_date, symbol, turnover_rank)
@@ -51,6 +56,18 @@ def latest_members(ranks: list[Rank]) -> list[str]:
         return []
     newest = max(d for d, _, _ in ranks)
     return [s for d, s, r in ranks if d == newest and r <= UNIVERSE_SIZE]
+
+
+def recent_members(ranks: list[Rank], days: int) -> list[str]:
+    """Members on any of the newest `days` universe days: the newest day's members by rank,
+    then the others by name."""
+    if not ranks:
+        return []
+    newest = max(d for d, _, _ in ranks)
+    latest = latest_members(ranks)
+    first = newest - timedelta(days=days - 1)
+    others = {s for d, s, r in ranks if d >= first and r <= UNIVERSE_SIZE} - set(latest)
+    return latest + sorted(others)
 
 
 def ever_ranked(ranks: list[Rank]) -> set[str]:

@@ -57,6 +57,20 @@ def test_latest_members_and_ever_ranked() -> None:
     assert universe.latest_members([]) == []
 
 
+def test_recent_members_add_former_members_within_the_window() -> None:
+    ranks = [
+        (D, "GONEUSDT", 5),  # outside a 2-day window
+        (D + timedelta(days=1), "LEFTUSDT", 7),  # a member then, not on the newest day
+        (D + timedelta(days=1), "NEARUSDT", 120),  # ranked, never a member
+        (D + timedelta(days=2), "ETHUSDT", 2),
+        (D + timedelta(days=2), "BTCUSDT", 1),
+        (D + timedelta(days=2), "LEFTUSDT", 101),
+    ]
+    assert universe.recent_members(ranks, 2) == ["ETHUSDT", "BTCUSDT", "LEFTUSDT"]
+    assert universe.recent_members(ranks, 3) == ["ETHUSDT", "BTCUSDT", "GONEUSDT", "LEFTUSDT"]
+    assert universe.recent_members([], 2) == []
+
+
 def test_read_ranks_without_a_universe_selects_nothing(tmp_path: Path) -> None:
     assert universe.read_ranks(tmp_path / "missing.duckdb") == []
     database = tmp_path / "w.duckdb"

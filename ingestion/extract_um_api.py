@@ -2,10 +2,12 @@
 
 Run from repo root: python -m ingestion.extract_um_api [--nothing-new-exit-code N]
 Contracts: the universe members on the newest day of the last dbt build (universe.py);
-none before the first build. Six series, each with its own landing zone and watermark,
-by the algorithms of the whitelist's extracts: futures (last price) klines 1h, funding,
-open interest and the three long/short ratios. History of a contract new to a series: the
-last API_HISTORY_DAYS (the archive holds everything older; the /futures/data/ series serve
+none before the first build. Funding: also the members of the last FUNDING_MEMBER_DAYS
+days (the funding archive is monthly; labels of a former member need the current month).
+Six series, each with its own landing zone and watermark, by the algorithms of the
+whitelist's extracts: futures (last price) klines 1h, funding, open interest
+and the three long/short ratios. History of a contract new to a series: the last
+API_HISTORY_DAYS (the archive holds everything older; the /futures/data/ series serve
 about 30 days anyway). Taker buy volume comes with the klines, so the taker ratio endpoint
 is not extracted (it reads slightly below the klines, see extract_long_short).
 One as-of moment for all series.
@@ -31,7 +33,7 @@ from ingestion.clients.binance import BinanceFuturesClient
 from ingestion.extract_cli import exit_code, parse_extract_args
 from ingestion.futures_stats import PERIOD, StatsSeries
 from ingestion.settings import LANDING_ZONE_DIR
-from ingestion.universe import latest_members, read_ranks
+from ingestion.universe import FUNDING_MEMBER_DAYS, latest_members, read_ranks, recent_members
 
 API_HISTORY_DAYS = 35
 KLINES_DIR = LANDING_ZONE_DIR / "um_api_klines_1h"
@@ -90,8 +92,13 @@ def extract_contracts(client: BinanceFuturesClient, now_ms: int, output_dir: Pat
     return writer.finish()
 
 
-def extract_all(client: BinanceFuturesClient, contracts: list[str], now_ms: int) -> list[Path]:
-    """Every series for the contracts; the batches written."""
+def extract_all(
+    client: BinanceFuturesClient,
+    contracts: list[str],
+    funding_contracts: list[str],
+    now_ms: int,
+) -> list[Path]:
+    """Every series for the contracts (funding for funding_contracts); the batches written."""
     written: list[Path | None] = []
     print("\n== um_api_klines_1h ==")
     written.append(
@@ -99,7 +106,9 @@ def extract_all(client: BinanceFuturesClient, contracts: list[str], now_ms: int)
     )
     print("\n== um_api_funding_rate ==")
     written.append(
-        extract_funding.extract_batch(client, contracts, now_ms, FUNDING_DIR, API_HISTORY_DAYS)
+        extract_funding.extract_batch(
+            client, funding_contracts, now_ms, FUNDING_DIR, API_HISTORY_DAYS
+        )
     )
     for series in STATS_SERIES:
         print(f"\n== {series.name} ==")
@@ -112,10 +121,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     now_ms = int(time.time() * 1000)
     with BinanceFuturesClient() as client:
         written = [b for b in [extract_contracts(client, now_ms, CONTRACTS_DIR)] if b]
-        contracts = latest_members(read_ranks())
+        ranks = read_ranks()
+        contracts = latest_members(ranks)
         if contracts:
-            print(f"Extracting the API tail of {len(contracts)} universe contracts")
-            written += extract_all(client, contracts, now_ms)
+            funding_contracts = recent_members(ranks, FUNDING_MEMBER_DAYS)
+            print(
+                f"Extracting the API tail of {len(contracts)} universe contracts "
+                f"(funding: {len(funding_contracts)})"
+            )
+            written += extract_all(client, contracts, funding_contracts, now_ms)
         else:
             print("No universe yet: no API tail to extract")
     return exit_code(written[0] if written else None, args.nothing_new_exit_code)
