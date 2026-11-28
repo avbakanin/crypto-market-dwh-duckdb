@@ -92,6 +92,12 @@ vars:
   # 0.4-2.5 % by contract; 1 % is a middle) and the leverages reported.
   maintenance_margin_rate: 0.01
   leverage_levels: [3, 5, 10]
+  # Forward test (signals/, docs/forward_test.md): the signal log the daily step writes,
+  # relative to the repo root (dbt runs from there), and the criteria to drop the paper
+  # mark (the same numbers as signals/registry.py).
+  signals_log_glob: data/signals/log/*.json
+  signal_criteria_min_days: 183
+  signal_criteria_min_closed: 100
 
 seeds:
   crypto_market_dwh:

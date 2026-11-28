@@ -1,3 +1,4 @@
-# Signal research (research/, stage 3): local and test image only, not the pipeline.
+# Signal research (research/, stage 3): local and test image; the pipeline gets the same
+# LightGBM through requirements-signals.txt.
 lightgbm==4.7.0
 scipy==1.18.1

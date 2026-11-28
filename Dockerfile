@@ -26,16 +26,23 @@ ENV PROJECT_HOME=/opt/project \
 USER root
 RUN mkdir -p "${PROJECT_HOME}" "${PROJECT_VENV}" \
     && chown airflow:0 "${PROJECT_HOME}" "${PROJECT_VENV}"
+# LightGBM's wheel links OpenMP (libgomp), which the Airflow image lacks.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 USER airflow
 
 # Dependencies before code: this layer is rebuilt only when the pins change.
 # The venv comes from the base interpreter, not from Airflow's own venv.
 # dbt-core-experimental-parser is an sdist whose build step downloads its
 # wheel from GitHub releases, so the build needs github.com as well as PyPI.
-COPY --chown=airflow:0 requirements.txt requirements-dbt.txt /tmp/requirements/
+# The forward test's daily step (signals/) scores with pandas and LightGBM.
+COPY --chown=airflow:0 requirements.txt requirements-dbt.txt requirements-signals.txt \
+    /tmp/requirements/
 RUN /usr/python/bin/python -m venv "${PROJECT_VENV}" \
     && "${PROJECT_VENV}/bin/pip" install --no-cache-dir --disable-pip-version-check \
         -r /tmp/requirements/requirements-dbt.txt \
+        -r /tmp/requirements/requirements-signals.txt \
     && "${PROJECT_VENV}/bin/pip" check \
     && python -m pip check
 

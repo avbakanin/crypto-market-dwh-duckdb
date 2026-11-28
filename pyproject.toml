@@ -16,7 +16,7 @@ src = [".", "dags"]
 select = ["E", "F", "W", "I", "UP", "B"]
 
 [tool.pyright]
-include = ["ingestion", "dashboard", "analysis", "research", "tests"]
+include = ["ingestion", "dashboard", "analysis", "research", "signals", "tests"]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
 venvPath = "."

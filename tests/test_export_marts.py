@@ -175,6 +175,8 @@ def test_exported_files_are_the_ones_the_readers_expect() -> None:
         "mart_pump_signal_check",
         "dq_check_results",
         "dq_data_coverage",
+        "fct_signal_log",
+        "mart_signal_performance",
     ]
     assert {export.relation.split(".")[0] for export in EXPORTS} == {"marts", "dq"}
     assert all(export.relation.endswith("." + export.name) for export in EXPORTS)

@@ -205,6 +205,8 @@ with Airflow's own interpreter.
 | [dbt/](dbt/) | models (staging, intermediate, marts, DQ), tests, macros, DQ log hooks |
 | [dags/](dags/) | the pipeline DAG and the alerting package |
 | [dashboard/](dashboard/) | Streamlit app and its data layer |
+| [research/](research/) | signal research: walk-forward protocol, placebo, guarded holdout ([docs/signal_research.md](docs/signal_research.md)) |
+| [signals/](signals/) | forward test: registered versions, frozen models, chained signal log, Telegram ([docs/forward_test.md](docs/forward_test.md)) |
 | [analysis/](analysis/) | the findings report; comparisons with the Snowflake baseline and export; landing zone fingerprint |
 | [tests/](tests/), [tests_airflow/](tests_airflow/) | Python tests; DAG and alert tests |
 | [docs/](docs/) | findings, data quality report, source notes, Snowflake baseline and the port's comparisons |

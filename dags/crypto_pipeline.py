@@ -3,6 +3,7 @@
 Its shape depends on PIPELINE_MODE (who owns the landing zone, see ingestion/settings.py):
 
 follow  check_environment -> load_raw -> source_freshness -> dbt_build -> dq_log -> export_marts
+        dq_log -> signals (next to export_marts, in both modes)
         The Snowflake original extracts into the landing zone (at :07) and this stack mounts
         it read-only: no extract tasks, and the run comes 30 minutes later, at :37.
 own     check_environment -> extract x6 (in parallel) -> load_raw -> ... (as above), at :07.
@@ -19,6 +20,11 @@ own     check_environment -> extract x6 (in parallel) -> load_raw -> ... (as abo
   The DQ log is reconciled in a second dbt call, after the hook of the build has written it.
 * The marts are exported to data/marts/ (Parquet, from the warehouse opened read-only) only
   after the build and the reconciliation passed: the dashboard reads the last checked state.
+* The forward test (signals/, docs/forward_test.md): after the DQ log check, next to the
+  export (both only read the warehouse), the first run after 00:00 UTC logs the day's
+  decisions to data/signals/log/ and sends them to Telegram as a paper test; later runs
+  of the day find it logged (skipped). A day whose entry (01:00 UTC) passes without a
+  decision is logged as missed by the next run.
 * One writer of the DuckDB file: the tasks run one after another and one run at a time.
 * Alerts (dags/alerting, messages start with "[duckdb]"): a Telegram message when a task
   fails for good (with the failed dbt checks and where their rows are, or the last output
@@ -140,8 +146,17 @@ with DAG(
         execution_timeout=timedelta(minutes=10),
     )
 
+    # Nothing new (today is logged already) skips. Not retried: a retry after 01:00 UTC
+    # would only log the day as missed, which the next run does anyway.
+    signals = project_task(
+        "signals",
+        f"python -m signals.run --nothing-new-exit-code {SKIPPED}",
+        skip_on_exit_code=SKIPPED,
+        execution_timeout=timedelta(minutes=15),
+    )
+
     if extracts:
         check_environment >> extracts >> load_raw
     else:
         check_environment >> load_raw
-    load_raw >> source_freshness >> dbt_build >> dq_log >> export_marts
+    load_raw >> source_freshness >> dbt_build >> dq_log >> [export_marts, signals]

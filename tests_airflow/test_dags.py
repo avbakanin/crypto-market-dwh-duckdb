@@ -91,6 +91,7 @@ LOAD_AND_AFTER = {
     "dbt_build",
     "dq_log",
     "export_marts",
+    "signals",
 }
 
 
@@ -140,6 +141,7 @@ def test_a_follower_has_no_extract_and_loads_after_the_check(follower: DAG) -> N
         "dbt_build": {"source_freshness"},
         "dq_log": {"dbt_build"},
         "export_marts": {"dq_log"},
+        "signals": {"dq_log"},
     }
 
 
@@ -153,11 +155,12 @@ def test_an_owner_extracts_in_parallel_between_the_check_and_the_load(owner: DAG
         "dbt_build": {"source_freshness"},
         "dq_log": {"dbt_build"},
         "export_marts": {"dq_log"},
+        "signals": {"dq_log"},
     }
 
 
 def test_only_nothing_new_skips_the_extracts_and_the_load(pipeline: DAG) -> None:
-    skipping = extracts_of(pipeline) | {"load_raw"}
+    skipping = extracts_of(pipeline) | {"load_raw", "signals"}
     for task_id, task in pipeline.task_dict.items():
         if task_id in skipping:
             assert task.bash_command.endswith("--nothing-new-exit-code 99"), task_id
@@ -183,6 +186,7 @@ def test_retries_only_where_a_retry_can_help(pipeline: DAG) -> None:
         "dbt_build": 0,
         "dq_log": 0,
         "export_marts": 1,
+        "signals": 0,
     }
 
 
@@ -209,6 +213,13 @@ def test_the_export_reads_the_marts_last_and_only_after_every_check_passed(pipel
     assert export.bash_command == f"{PROJECT_BIN}python -m ingestion.export_marts"
     assert export.downstream_task_ids == set()
     assert export.trigger_rule == TriggerRule.ALL_SUCCESS
+
+
+def test_the_forward_test_logs_after_every_check_passed(pipeline: DAG) -> None:
+    signals = pipeline.task_dict["signals"]
+    assert signals.bash_command == f"{PROJECT_BIN}python -m signals.run --nothing-new-exit-code 99"
+    assert signals.upstream_task_ids == {"dq_log"}
+    assert signals.trigger_rule == TriggerRule.ALL_SUCCESS
 
 
 def _callbacks(value: object) -> list[object]:

@@ -102,7 +102,50 @@ OPTIONAL_COLUMNS: dict[str, frozenset[str]] = {
     "dq_data_coverage": frozenset(
         {"dataset", "row_count", "symbol_count", "data_from", "data_to", "latest_batch_id"}
     ),
+    # The forward test (signals/), exported since stage 4.
+    "fct_signal_log": frozenset(
+        {
+            "decision_date",
+            "version",
+            "status",
+            "reason",
+            "symbol",
+            "side",
+            "hedge_symbol",
+            "hedge_side",
+            "hedge_ratio",
+            "stop_loss",
+            "planned_exit_time",
+            "outcome_status",
+            "exit_reason",
+            "net_return",
+            "mae",
+            "excess_return",
+        }
+    ),  # fmt: skip
+    "mart_signal_performance": frozenset(
+        {
+            "version",
+            "days_logged",
+            "days_missed",
+            "trades",
+            "open_trades",
+            "closed_trades",
+            "stopped_trades",
+            "hit_rate",
+            "mean_net",
+            "ci_low",
+            "ci_high",
+            "mean_excess",
+            "survive_3x_share",
+            "worst_net",
+            "days_running",
+            "criteria_met",
+        }
+    ),  # fmt: skip
 }
+SIGNAL_LOG = "fct_signal_log"
+SIGNAL_PERFORMANCE = "mart_signal_performance"
 COVERAGE = "dq_data_coverage"
 DATA_AS_OF_DATASET = "klines_1h"  # prices: the dataset every mart is built on
 
@@ -659,4 +702,39 @@ def warn_history(con: duckdb.DuckDBPyConnection, only_with_findings: bool = True
         ORDER BY check_label, run_started_at
         """,
         {"only": only_with_findings, "full_share": FULL_BUILD_SHARE},
+    )
+
+
+# --- forward test ------------------------------------------------------------------------
+
+
+def signal_performance(con: duckdb.DuckDBPyConnection, snapshot: Snapshot) -> pd.DataFrame | None:
+    """Results per forward version; None for an export made before the forward test."""
+    if SIGNAL_PERFORMANCE not in snapshot.tables:
+        return None
+    return frame(
+        con,
+        f"""
+        SELECT version, days_running, days_logged, days_missed, trades, open_trades,
+               closed_trades, stopped_trades, hit_rate, mean_net, ci_low, ci_high,
+               mean_excess, survive_3x_share, worst_net, criteria_met
+        FROM {SIGNAL_PERFORMANCE} ORDER BY version
+        """,
+    )
+
+
+def signal_log(con: duckdb.DuckDBPyConnection, snapshot: Snapshot) -> pd.DataFrame | None:
+    """Every logged decision, newest first; None for an export made before the forward test."""
+    if SIGNAL_LOG not in snapshot.tables:
+        return None
+    return frame(
+        con,
+        f"""
+        SELECT decision_date, version, status, coalesce(reason, '') AS reason, symbol, side,
+               hedge_symbol, hedge_side, hedge_ratio::DOUBLE AS hedge_ratio,
+               stop_loss::DOUBLE AS stop_loss, planned_exit_time, outcome_status, exit_reason,
+               net_return::DOUBLE AS net_return, mae::DOUBLE AS mae,
+               excess_return::DOUBLE AS excess_return
+        FROM {SIGNAL_LOG} ORDER BY decision_date DESC, version
+        """,
     )

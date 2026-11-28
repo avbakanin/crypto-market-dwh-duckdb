@@ -19,3 +19,5 @@ ridge_regime_h7,2,ridge,regime,7,rejected,20261128T102702Z,2026-11-28,"walk-forw
 ridge_regime_h14,2,ridge,regime,14,rejected,20261128T102702Z,2026-11-28,"walk-forward mean net 0.0118, Holm p 1.000, 3/7 folds"
 lgbm_regime_h7,2,lgbm,regime,7,rejected,20261128T102702Z,2026-11-28,"walk-forward mean net 0.0147, Holm p 1.000, 5/7 folds"
 lgbm_regime_h14,2,lgbm,regime,14,rejected,20261128T102702Z,2026-11-28,"walk-forward mean net 0.0259, Holm p 1.000, 4/7 folds"
+fwd_lgbm_hedged_h14,3,lgbm,hedged,14,forward_test,forward_test,2026-11-28,"lgbm_hedged_h14 as it is, frozen models per half-year block, logged daily from 2026-11-29 (signals/registry.py)"
+fwd_lgbm_hedged_risk_h14,3,lgbm,hedged,14,forward_test,forward_test,2026-11-28,"lgbm_hedged_h14 with risk rules: no short with < 180 days of history or turnover rank > 50, at most 10 open, both legs closed at a 15 % adverse move of the pick"

@@ -73,6 +73,9 @@ EXPORTS = (
     ),
     # How far each dataset reaches: the dashboard's "data as of".
     MartExport("dq_data_coverage", "dq.dq_data_coverage", "dataset"),
+    # The forward test (signals/): decisions with outcomes, results per version.
+    MartExport("fct_signal_log", "marts.fct_signal_log", "decision_date, version"),
+    MartExport("mart_signal_performance", "marts.mart_signal_performance", "version"),
 )
 
 INTEGER_TYPES = frozenset({"TINYINT", "SMALLINT", "INTEGER", "BIGINT"})

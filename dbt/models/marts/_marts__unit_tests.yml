@@ -334,3 +334,51 @@ unit_tests:
           long_survives_5x: false
           long_survives_10x: false
           short_survives_5x: true
+
+  # Forward-test outcomes (fct_signal_log). Day 1 (2026-12-01): version a, long C1 hedged
+  # by 0.5 x short BTCUSDT, held to the horizon; version b, long C2 with a 12.5 % stop hit
+  # in the 02:00 hour (low 86 < 87.5, opened at 90: filled at 87.5), hedge 1 x short BTC
+  # closed at that hour's close; funding up to 02:00 counts, 08:00 does not. Day 2: version
+  # b, short C1 gapping through its stop (opened at 120 > 112.5: filled at 120), hedge 0;
+  # version a short C3 without labels (open). Day 3: version b, no trade. Version c: its stop is crossed only in the hour of the horizon's exit (not a stop).
+  - name: signal_outcomes_hedge_stop_gap_and_open_trades
+    model: fct_signal_log
+    given:
+      - input: ref('stg_signals__decisions')
+        rows:
+          - {decision_date: 2026-12-01, version: a, status: trade, symbol: C1USDT, side: long, horizon_days: 14, hedge_symbol: BTCUSDT, hedge_side: short, hedge_ratio: 0.5}
+          - {decision_date: 2026-12-01, version: b, status: trade, symbol: C2USDT, side: long, horizon_days: 14, hedge_symbol: BTCUSDT, hedge_side: short, hedge_ratio: 1, stop_loss: 0.125}
+          - {decision_date: 2026-12-02, version: b, status: trade, symbol: C1USDT, side: short, horizon_days: 14, hedge_symbol: BTCUSDT, hedge_side: long, hedge_ratio: 0, stop_loss: 0.125}
+          - {decision_date: 2026-12-02, version: a, status: trade, symbol: C3USDT, side: short, horizon_days: 14, hedge_symbol: BTCUSDT, hedge_side: long, hedge_ratio: 1}
+          - {decision_date: 2026-12-03, version: b, status: no_trade, reason: max_open, horizon_days: 14}
+          - {decision_date: 2026-12-01, version: c, status: trade, symbol: C1USDT, side: long, horizon_days: 14, hedge_symbol: BTCUSDT, hedge_side: short, hedge_ratio: 0, stop_loss: 0.125}
+      - input: ref('fct_um_forward_returns')
+        rows:
+          - {decision_date: 2026-12-01, symbol: C1USDT, horizon_days: 14, entry_time: "2026-12-01 01:00:00+00", exit_time: "2026-12-15 01:00:00+00", exit_reason: horizon, entry_price: 10, cost_return: 0.002, net_return_long: 0.25, net_return_short: -0.3, mae_long: -0.125, mae_short: -0.5}
+          - {decision_date: 2026-12-01, symbol: C2USDT, horizon_days: 14, entry_time: "2026-12-01 01:00:00+00", exit_time: "2026-12-15 01:00:00+00", exit_reason: horizon, entry_price: 100, cost_return: 0.002, net_return_long: 0.75, net_return_short: -0.8, mae_long: -0.2, mae_short: -0.9}
+          - {decision_date: 2026-12-01, symbol: BTCUSDT, horizon_days: 14, entry_time: "2026-12-01 01:00:00+00", exit_time: "2026-12-15 01:00:00+00", exit_reason: horizon, entry_price: 50000, cost_return: 0.0015, net_return_long: 0.5, net_return_short: -0.0625, mae_long: -0.01, mae_short: -0.03125}
+          - {decision_date: 2026-12-02, symbol: C1USDT, horizon_days: 14, entry_time: "2026-12-02 01:00:00+00", exit_time: "2026-12-16 01:00:00+00", exit_reason: horizon, entry_price: 100, cost_return: 0.002, net_return_long: -0.1, net_return_short: 0.1, mae_long: -0.3, mae_short: -0.3}
+          - {decision_date: 2026-12-02, symbol: BTCUSDT, horizon_days: 14, entry_time: "2026-12-02 01:00:00+00", exit_time: "2026-12-16 01:00:00+00", exit_reason: horizon, entry_price: 50000, cost_return: 0.0015, net_return_long: 0, net_return_short: 0, mae_long: 0, mae_short: 0}
+      - input: ref('int_um__klines_1h')
+        rows:
+          - {symbol: C1USDT, open_time: "2026-12-15 01:00:00+00", open_price: 6, high_price: 6, low_price: 5, close_price: 5, trade_count: 10}
+          - {symbol: C2USDT, open_time: "2026-12-01 01:00:00+00", open_price: 100, high_price: 101, low_price: 95, close_price: 92, trade_count: 10}
+          - {symbol: C2USDT, open_time: "2026-12-01 02:00:00+00", open_price: 90, high_price: 91, low_price: 86, close_price: 88, trade_count: 10}
+          - {symbol: C2USDT, open_time: "2026-12-01 03:00:00+00", open_price: 88, high_price: 89, low_price: 80, close_price: 81, trade_count: 10}
+          - {symbol: BTCUSDT, open_time: "2026-12-01 02:00:00+00", open_price: 50000, high_price: 50000, low_price: 45000, close_price: 45000, trade_count: 10}
+          - {symbol: C1USDT, open_time: "2026-12-02 02:00:00+00", open_price: 100, high_price: 112, low_price: 99, close_price: 111, trade_count: 10}
+          - {symbol: C1USDT, open_time: "2026-12-02 03:00:00+00", open_price: 120, high_price: 130, low_price: 118, close_price: 125, trade_count: 10}
+          - {symbol: BTCUSDT, open_time: "2026-12-02 03:00:00+00", open_price: 50000, high_price: 50000, low_price: 50000, close_price: 50000, trade_count: 10}
+      - input: ref('int_um__funding_rate')
+        rows:
+          - {contract_symbol: C2USDT, funding_hour: "2026-12-01 02:00:00+00", funding_rate: 0.001}
+          - {contract_symbol: C2USDT, funding_hour: "2026-12-01 08:00:00+00", funding_rate: 0.5}
+          - {contract_symbol: BTCUSDT, funding_hour: "2026-12-01 02:00:00+00", funding_rate: 0.0001}
+    expect:
+      rows:
+        - {decision_date: 2026-12-01, version: a, outcome_status: closed, exit_reason: horizon, is_stopped: false, exit_time: "2026-12-15 01:00:00+00", pick_net_return: 0.25, hedge_net_return: -0.0625, net_return: 0.21875, mae: -0.140625, exposure: 1.5, excess_return: -0.25, survives_3x: true}
+        - {decision_date: 2026-12-01, version: b, outcome_status: closed, exit_reason: stop, is_stopped: true, exit_time: "2026-12-01 03:00:00+00", pick_net_return: -0.128, hedge_net_return: 0.0986, net_return: -0.0294, mae: -0.15625, exposure: 2, excess_return: -0.628, survives_3x: true}
+        - {decision_date: 2026-12-02, version: b, outcome_status: closed, exit_reason: stop, is_stopped: true, exit_time: "2026-12-02 04:00:00+00", pick_net_return: -0.202, hedge_net_return: -0.0015, net_return: -0.202, mae: -0.2, exposure: 1, excess_return: -0.252, survives_3x: true}
+        - {decision_date: 2026-12-02, version: a, outcome_status: open, exit_reason: null, is_stopped: null, exit_time: null, pick_net_return: null, hedge_net_return: null, net_return: null, mae: null, exposure: null, excess_return: null, survives_3x: null}
+        - {decision_date: 2026-12-01, version: c, outcome_status: closed, exit_reason: horizon, is_stopped: false, exit_time: "2026-12-15 01:00:00+00", pick_net_return: 0.25, hedge_net_return: -0.0625, net_return: 0.25, mae: -0.125, exposure: 1, excess_return: -0.25, survives_3x: true}
+        - {decision_date: 2026-12-03, version: b, outcome_status: null, exit_reason: null, is_stopped: null, exit_time: null, pick_net_return: null, hedge_net_return: null, net_return: null, mae: null, exposure: null, excess_return: null, survives_3x: null}

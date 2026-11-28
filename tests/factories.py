@@ -312,6 +312,42 @@ MART_SCHEMAS: dict[str, pa.Schema] = {
             ("latest_batch_id", pa.string()),
         ]
     ),
+    "fct_signal_log": pa.schema(
+        [
+            ("decision_date", pa.date32()),
+            ("version", pa.string()),
+            ("status", pa.string()),
+            ("reason", pa.string()),
+            ("symbol", pa.string()),
+            ("side", pa.string()),
+            ("hedge_symbol", pa.string()),
+            ("hedge_side", pa.string()),
+            ("planned_exit_time", _TS),
+            ("outcome_status", pa.string()),
+            ("exit_reason", pa.string()),
+        ]
+        + _decimals("hedge_ratio", "stop_loss", "net_return", "mae", "excess_return")
+    ),
+    "mart_signal_performance": pa.schema(
+        [
+            ("version", pa.string()),
+            ("days_logged", pa.int64()),
+            ("days_missed", pa.int64()),
+            ("trades", pa.int64()),
+            ("open_trades", pa.int64()),
+            ("closed_trades", pa.int64()),
+            ("stopped_trades", pa.int64()),
+            ("hit_rate", pa.float64()),
+            ("mean_net", pa.float64()),
+            ("ci_low", pa.float64()),
+            ("ci_high", pa.float64()),
+            ("mean_excess", pa.float64()),
+            ("survive_3x_share", pa.float64()),
+            ("worst_net", pa.float64()),
+            ("days_running", pa.int64()),
+            ("criteria_met", pa.bool_()),
+        ]
+    ),
 }
 
 

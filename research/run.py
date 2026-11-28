@@ -19,6 +19,7 @@ import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -56,7 +57,7 @@ def evaluate(
         merged["exposure"] = 1.0 + beta
     out = merged[["decision_date", "symbol", "side", "score", "net", "mae", "exposure", "base",
                   "excess"]]  # fmt: skip
-    return out.loc[out["net"].notna()]
+    return cast(pd.DataFrame, out).dropna(subset=["net"])
 
 
 def run_version(

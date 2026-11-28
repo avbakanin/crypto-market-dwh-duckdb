@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -43,11 +44,12 @@ def read_warehouse(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     return features, labels
 
 
-def build_panel(
-    features: pd.DataFrame, labels: pd.DataFrame, include_holdout: bool
-) -> pd.DataFrame:
-    """Features with centred ranks, market features and wide labels."""
-    panel = features[["decision_date", "symbol", *SYMBOL_FEATURES, *MARKET_FEATURES[:-1]]].copy()
+def feature_panel(features: pd.DataFrame, extra: tuple[str, ...] = ()) -> pd.DataFrame:
+    """Features with the day's centred ranks and the market features; `extra` columns of
+    the features are carried along unchanged."""
+    columns = ["decision_date", "symbol", *SYMBOL_FEATURES, *MARKET_FEATURES[:-1]]
+    extra_columns = [c for c in extra if c not in columns]
+    panel = cast(pd.DataFrame, features[[*columns, *extra_columns]]).copy()
     panel["decision_date"] = pd.to_datetime(panel["decision_date"])
     for column in [*SYMBOL_FEATURES, *MARKET_FEATURES[:-1]]:
         panel[column] = panel[column].astype(float)
@@ -55,6 +57,14 @@ def build_panel(
     panel["market_funding_1d"] = by_day["funding_1d"].transform("median")
     for column in SYMBOL_FEATURES:
         panel[f"rank_{column}"] = by_day[column].rank(pct=True) - 0.5
+    return panel
+
+
+def build_panel(
+    features: pd.DataFrame, labels: pd.DataFrame, include_holdout: bool
+) -> pd.DataFrame:
+    """Features with centred ranks, market features and wide labels."""
+    panel = feature_panel(features)
 
     wide = labels.copy()
     wide["decision_date"] = pd.to_datetime(wide["decision_date"])

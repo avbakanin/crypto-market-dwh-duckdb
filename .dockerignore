@@ -16,6 +16,8 @@
 !requirements-dev.txt
 !requirements-dashboard.txt
 !requirements-research.txt
+!requirements-signals.txt
+!signals/
 
 # Generated files and secrets inside the allowed directories stay out too.
 **/__pycache__/

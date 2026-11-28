@@ -47,6 +47,8 @@ x-project-volumes: &project-volumes
   - ./warehouse:/opt/project/warehouse
   # The mart exports the dashboard reads (ingestion/export_marts.py).
   - ./data/marts:/opt/project/data/marts
+  # The forward test's signal log and frozen models (signals/): not a cache, never rebuilt.
+  - ./data/signals:/opt/project/data/signals
 
 # Airflow settings shared by every Airflow component. There is no shared airflow.cfg: a
 # container without one writes its own with a random JWT secret, API secret key and Fernet
@@ -163,6 +165,7 @@ services:
       - ${LANDING_ZONE_DIR:-./data/raw}:/opt/project/data/raw:${LANDING_ZONE_ACCESS:-ro}
       - ./warehouse:/opt/project/warehouse
       - ./data/marts:/opt/project/data/marts
+      - ./data/signals:/opt/project/data/signals
     # Tasks report to the execution API on the API server.
     depends_on:
       <<: *airflow-depends-on

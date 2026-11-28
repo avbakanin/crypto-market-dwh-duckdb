@@ -1,0 +1,9 @@
+# Forward test's daily step (signals/), in the pipeline venv too: the dashboard's pandas
+# and numpy pins, the research's LightGBM (it needs scipy).
+lightgbm==4.7.0
+numpy==2.5.5
+pandas==3.1.1
+python-dateutil==2.9.0.post0
+scipy==1.18.1
+six==1.17.0
+tzdata==2026.6

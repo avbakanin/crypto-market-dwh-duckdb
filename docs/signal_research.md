@@ -75,3 +75,5 @@ in 14 days, VELVETUSDT, MUSDT) — 2025-2026 has the highest member volatility o
 - The holdout is spent for this version, and any version designed after looking at it
   carries that look. From here only a **forward test** (signals logged before the future
   happens, stage 4) can confirm a version honestly.
+- Stage 4 registered two forward versions on 2026-11-28 and logs them daily from
+  2026-11-29: `docs/forward_test.md`.

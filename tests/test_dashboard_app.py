@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -39,7 +39,8 @@ def test_page_shows_the_export_and_every_tab(
     assert "Data as of **2026-11-24 08:00 UTC**" in text
     assert EXPORT_ID in text
     assert not app.warning  # fresh export
-    assert [t.label for t in app.tabs] == ["Pumps", "Profile ±24 h", "Data quality"]
+    labels = ["Pumps", "Profile ±24 h", "Data quality", "Signals (paper test)"]
+    assert [t.label for t in app.tabs] == labels
     assert app.metric[0].label == "Events" and app.metric[0].value == "4"
     assert "Checks that need a look" in [s.value for s in app.subheader]
 
@@ -94,3 +95,36 @@ def test_broken_export_is_an_error_not_a_crash(
     app = run_app(tmp_path, monkeypatch)
     assert "no table fct_pump_events" in app.error[0].value
     assert not app.tabs
+
+
+def test_signals_tab_shows_results_and_decisions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rows = make_mart_rows()
+    rows["fct_signal_log"] = [
+        {"decision_date": date(2026, 11, 29), "version": "fwd_lgbm_hedged_h14", "status": "trade",
+         "symbol": "C1USDT", "side": "long", "hedge_symbol": "BTCUSDT", "hedge_side": "short",
+         "hedge_ratio": 0.9, "outcome_status": "open"},
+        {"decision_date": date(2026, 11, 29), "version": "fwd_lgbm_hedged_risk_h14",
+         "status": "no_trade", "reason": "max_open"},
+    ]  # fmt: skip
+    rows["mart_signal_performance"] = [
+        {"version": "fwd_lgbm_hedged_h14", "days_logged": 1, "trades": 1, "open_trades": 1,
+         "closed_trades": 0, "days_running": 1, "criteria_met": False},
+    ]  # fmt: skip
+    write_mart_export(tmp_path, exported_at=datetime.now(UTC), rows=rows)
+    app = run_app(tmp_path, monkeypatch)
+    assert not app.exception
+    frames = [d.value for d in app.dataframe]
+    performance = next(f for f in frames if "criteria_met" in f)
+    log = next(f for f in frames if "outcome_status" in f)
+    assert performance["version"].tolist() == ["fwd_lgbm_hedged_h14"]
+    assert log["reason"].tolist() == ["", "max_open"]
+
+
+def test_signals_tab_of_an_export_before_the_forward_test(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_mart_export(tmp_path, exported_at=datetime.now(UTC))
+    app = run_app(tmp_path, monkeypatch)
+    assert "This export has no forward-test tables yet." in [i.value for i in app.info]

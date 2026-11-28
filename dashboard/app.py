@@ -533,6 +533,52 @@ def dq_tab(con: duckdb.DuckDBPyConnection, snapshot: Snapshot) -> None:
     st.altair_chart(chart, width="stretch")
 
 
+# --- forward test ------------------------------------------------------------------------
+
+
+def signals_tab(con: duckdb.DuckDBPyConnection, snapshot: Snapshot) -> None:
+    st.caption(
+        "Forward test of the signal versions registered on 2026-11-28 (docs/forward_test.md): "
+        "decided at 00:07 UTC from the closed day, entered at 01:00 UTC, logged before the "
+        "entry in a chained, append-only log. A paper test until a version runs 183 days with "
+        "100 closed trades and a 95 % interval above 0: not a confirmed signal."
+    )
+    performance = data.signal_performance(con, snapshot)
+    log = data.signal_log(con, snapshot)
+    if performance is None or log is None:
+        st.info("This export has no forward-test tables yet.")
+        return
+    st.subheader("Results per version")
+    st.dataframe(
+        performance,
+        hide_index=True,
+        column_config={
+            c: st.column_config.NumberColumn(format="percent")
+            for c in (
+                "hit_rate",
+                "mean_net",
+                "ci_low",
+                "ci_high",
+                "mean_excess",
+                "survive_3x_share",
+                "worst_net",
+            )
+        },  # fmt: skip
+    )
+    st.subheader("Decisions")
+    if log.empty:
+        st.info("Nothing logged yet: the first decision day is 2026-11-29.")
+        return
+    st.dataframe(
+        log,
+        hide_index=True,
+        column_config={
+            c: st.column_config.NumberColumn(format="percent")
+            for c in ("stop_loss", "net_return", "mae", "excess_return")
+        },
+    )
+
+
 def main() -> None:
     st.set_page_config(page_title="Crypto market pumps", page_icon="📈", layout="wide")
     try:
@@ -553,13 +599,17 @@ def main() -> None:
         st.stop()
     try:
         header(con, snapshot)
-        pumps, profile, quality = st.tabs(["Pumps", "Profile ±24 h", "Data quality"])
+        pumps, profile, quality, signals = st.tabs(
+            ["Pumps", "Profile ±24 h", "Data quality", "Signals (paper test)"]
+        )
         with pumps:
             pumps_tab(con)
         with profile:
             profile_tab(con)
         with quality:
             dq_tab(con, snapshot)
+        with signals:
+            signals_tab(con, snapshot)
     finally:
         con.close()
 

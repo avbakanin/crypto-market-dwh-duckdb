@@ -1,0 +1,47 @@
+version: 2
+
+models:
+  - name: stg_signals__log_days
+    description: >
+      One row per file of the forward test's signal log (data/signals/log/*.json, written
+      once per decision day by signals/run.py before the day's entry): its SHA-256 and
+      the previous day's hash it quotes. assert_signal_log_chain_intact checks the chain.
+    columns:
+      - name: decision_date
+        data_tests: [unique, not_null]
+      - name: file_sha256
+        data_tests: [not_null]
+
+  - name: stg_signals__decisions
+    description: >
+      One row per (decision day, forward version) of the signal log: a trade (symbol,
+      side, hedge, stop), no trade (reason) or a missed day (no run before the entry).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [decision_date, version]
+    columns:
+      - name: version
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('signal_definitions')
+                field: version
+      - name: status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [trade, no_trade, missed]
+      - name: side
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [long, short]
+      - name: symbol
+        description: Set exactly when status is trade.
+        data_tests:
+          - not_null:
+              config:
+                where: "status = 'trade'"

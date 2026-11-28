@@ -370,3 +370,45 @@ models:
           - dbt_utils.accepted_range:
               arguments:
                 min_value: 0
+
+  - name: fct_signal_log
+    description: >
+      The forward test's decisions with outcomes, one row per (decision day, version): the
+      logged trade (pick, BTCUSDT hedge, stop) and, once the labels cover its horizon, its
+      net after costs and funding, MAE, exposure and excess over the day's random member.
+      docs/forward_test.md.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [decision_date, version]
+    columns:
+      - name: outcome_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [open, closed]
+      - name: net_return
+        description: Net of the pair per unit of the pick's notional; set once closed.
+        data_tests:
+          - not_null:
+              config:
+                where: "outcome_status = 'closed'"
+      - name: mae
+        data_tests:
+          - not_null:
+              config:
+                where: "outcome_status = 'closed'"
+      - name: exit_reason
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [horizon, delisted, stop]
+
+  - name: mart_signal_performance
+    description: >
+      Forward-test results per registered version: logged, missed and traded days, open
+      and closed trades, hit rate, mean net with a normal 95 % interval, excess, survival
+      of 3x leverage, and whether the criteria to drop the paper mark are met.
+    columns:
+      - name: version
+        data_tests: [unique, not_null]
