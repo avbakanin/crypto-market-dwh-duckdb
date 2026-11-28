@@ -24,7 +24,7 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
-from research import config, data, folds, selection, stats, strategies
+from research import config, data, folds, ledger, selection, stats, strategies
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = PROJECT_ROOT / "data" / "research"
@@ -244,6 +244,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "git": git_state(),
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    if kind == "walk_forward":  # placebo and holdout test no new hypothesis
+        ledger.backfill()
+        ledger.record([v.name for v in versions if v.name not in ledger.tested()], kind, run_id)
     if args.holdout:
         with HOLDOUT_LOG.open("a") as log:
             for version in versions:

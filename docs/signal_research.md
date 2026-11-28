@@ -77,3 +77,19 @@ in 14 days, VELVETUSDT, MUSDT) — 2025-2026 has the highest member volatility o
   happens, stage 4) can confirm a version honestly.
 - Stage 4 registered two forward versions on 2026-11-28 and logs them daily from
   2026-11-29: `docs/forward_test.md`.
+
+## Tools after stage 3 (2026-11-28)
+
+- **Hypothesis ledger** (`research/ledger.py`, `data/research/hypothesis_log.jsonl`): every
+  hypothesis tested on the history, across runs: walk-forward versions (backfilled from the
+  runs above: 20) and event-study conditions. Holm corrects within a run; the ledger is the
+  count a new result is judged against (Bonferroni, `p_adj`). Placebo and holdout runs add
+  nothing.
+- **Event study** (`python -m research.event_study "<pandas query>" --side long|short
+  [--max-rank N] [--min-history N] [--start D] [--end D]`): events of a condition over the
+  feature panel, per horizon 1/3/7/14: mean net with a block-bootstrap interval, hit rate,
+  excess over the day's average member, MAE, survival at 3x/5x, mean by year. The holdout
+  is spent, so it reads the whole history; a finding becomes a signal only through a new
+  registered version and the forward test. Example, 2026-11-28: shorts on
+  `funding_z_30d > 2 and oi_chg_7d > 0.2` win 55 % of the time and lose on average
+  (14 d: -3.7 %, interval -12.8 % .. +6.1 %; MAE p10 -82 %): squeezes.
